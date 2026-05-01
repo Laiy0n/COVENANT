@@ -17,9 +17,21 @@ from datetime import datetime, timezone
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection - graceful fallback to in-memory if unavailable
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+db_name = os.environ.get('DB_NAME', 'covenant_recursion')
+mongo_available = False
+db = None
+
+try:
+    client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=3000)
+    db = client[db_name]
+    mongo_available = True
+except Exception:
+    pass
+
+# In-memory fallback for leaderboard when MongoDB is unavailable
+in_memory_leaderboard = []
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -134,17 +146,41 @@ async def create_room():
 
 @api_router.get("/leaderboard")
 async def get_leaderboard():
-    leaders = await db.leaderboard.find({}, {"_id": 0}).sort("kills", -1).to_list(20)
-    return {"leaderboard": leaders}
+    if db is not None:
+        try:
+            leaders = await db.leaderboard.find({}, {"_id": 0}).sort("kills", -1).to_list(20)
+            return {"leaderboard": leaders}
+        except Exception:
+            pass
+    # Fallback to in-memory
+    sorted_lb = sorted(in_memory_leaderboard, key=lambda x: x.get("kills", 0), reverse=True)[:20]
+    return {"leaderboard": sorted_lb}
 
 @api_router.post("/leaderboard")
 async def update_leaderboard(data: dict):
-    await db.leaderboard.update_one(
-        {"player_name": data.get("player_name")},
-        {"$inc": {"kills": data.get("kills", 0), "deaths": data.get("deaths", 0)},
-         "$set": {"last_played": datetime.now(timezone.utc).isoformat()}},
-        upsert=True
-    )
+    player_name = data.get("player_name", "Unknown")
+    kills = data.get("kills", 0)
+    deaths = data.get("deaths", 0)
+    
+    if db is not None:
+        try:
+            await db.leaderboard.update_one(
+                {"player_name": player_name},
+                {"$inc": {"kills": kills, "deaths": deaths},
+                 "$set": {"last_played": datetime.now(timezone.utc).isoformat()}},
+                upsert=True
+            )
+            return {"status": "ok"}
+        except Exception:
+            pass
+    
+    # Fallback to in-memory
+    existing = next((p for p in in_memory_leaderboard if p.get("player_name") == player_name), None)
+    if existing:
+        existing["kills"] = existing.get("kills", 0) + kills
+        existing["deaths"] = existing.get("deaths", 0) + deaths
+    else:
+        in_memory_leaderboard.append({"player_name": player_name, "kills": kills, "deaths": deaths})
     return {"status": "ok"}
 
 # WebSocket Game Logic
@@ -423,4 +459,5 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    if mongo_available:
+        client.close()
