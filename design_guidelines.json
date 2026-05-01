@@ -1,0 +1,111 @@
+{
+  "theme": "dark",
+  "archetype": "2 (The Performance Pro) - Sci-Fi Tactical FPS (Void Black & Cyan/Red)",
+  "colors": {
+    "background": {
+      "base": "#050508",
+      "surface": "#12141C",
+      "surface_glass": "rgba(5, 5, 8, 0.7)"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#8B93A6",
+      "muted": "#4B5365"
+    },
+    "accent": {
+      "primary": "#00E5FF", 
+      "alien_blood": "#FF2A2A",
+      "warning": "#FFB800",
+      "tech_green": "#39FF14"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "headings": "Rajdhani, sans-serif",
+      "body": "IBM Plex Mono, monospace"
+    },
+    "scales": {
+      "h1": "text-5xl md:text-7xl font-bold tracking-tighter uppercase",
+      "h2": "text-3xl md:text-4xl font-semibold tracking-tight uppercase",
+      "h3": "text-xl md:text-2xl font-medium tracking-wide uppercase",
+      "body": "text-sm md:text-base tracking-normal",
+      "mono_label": "text-xs font-mono uppercase tracking-[0.2em]"
+    }
+  },
+  "layout": {
+    "spacing": "Generous Spacing Philosophy. Use p-6 to p-12 for containers. HUD elements use compact p-4.",
+    "grid_modes": {
+      "main_menu": "Asymmetric split layout. Not standard columns.",
+      "lobby": "MODE B: THE CONTROL ROOM GRID (grid-cols-1 md:grid-cols-3 gap-6).",
+      "hud": "Absolute positioning around the viewport edges."
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-transparent border border-[#00E5FF] text-[#00E5FF] hover:bg-[#00E5FF] hover:text-[#050508] transition-all duration-200 uppercase tracking-widest px-8 py-3 rounded-none shadow-[0_0_15px_rgba(0,229,255,0.2)] hover:shadow-[0_0_20px_rgba(0,229,255,0.6)]",
+      "secondary": "bg-transparent border border-white/20 text-white hover:border-white hover:bg-white/10 transition-all duration-200 uppercase tracking-widest px-8 py-3 rounded-none",
+      "danger": "bg-transparent border border-[#FF2A2A] text-[#FF2A2A] hover:bg-[#FF2A2A] hover:text-[#050508] transition-all duration-200 uppercase tracking-widest px-8 py-3 rounded-none"
+    },
+    "surfaces": {
+      "glass": "bg-black/60 backdrop-blur-md border border-white/10 rounded-none",
+      "solid": "bg-[#12141C] border border-white/10 rounded-none"
+    }
+  },
+  "visual_enhancers": {
+    "global": "Retro-Futurism terminal scanlines over the entire UI (pointer-events-none overlay with CSS repeating-linear-gradient).",
+    "hud_elements": "3D Spatial Depth: HUD elements should feel tactile with neon dropshadows, not just flat 2D.",
+    "animations": "Sharp, fast micro-interactions. Glitch effects on hover for main menu items."
+  },
+  "media": {
+    "image_urls": [
+      {
+        "url": "https://customer-assets.emergentagent.com/job_f0e12b6a-b7ce-46dc-b3c1-1064d0f8f2cc/artifacts/aitj0j7h_ChatGPT%20Image%2029_03_2026%2C%2016_34_10.png",
+        "description": "Flesh monster heart with multiple faces - the main antagonist. Use in Main Menu background to build tension.",
+        "category": "hero_background"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1709142223248-3d23e8089cc3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxkZWVwJTIwc3BhY2UlMjBuZWJ1bGElMjBkYXJrfGVufDB8fHx8MTc3NzY1ODE1NHww&ixlib=rb-4.1.0&q=85",
+        "description": "Deep space dark nebula. Use as base background behind the UI or monster.",
+        "category": "background"
+      },
+      {
+        "url": "https://images.pexels.com/photos/23522893/pexels-photo-23522893.png?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Intricate galaxy starscape texture. Good for overlays or secondary backgrounds.",
+        "category": "texture"
+      }
+    ]
+  },
+  "pages": {
+    "main_menu": {
+      "layout": "Asymmetrical split. Left side is navigation list, vertically centered. Right side features the monster heart image.",
+      "visuals": "Monster image must have a heavy dark gradient overlay (bg-gradient-to-r from-[#050508] via-[#050508]/80 to-transparent) so it emerges from the darkness.",
+      "elements": "Massive Game Title (H1). Menu options: PLAY SINGLEPLAYER, MULTIPLAYER LOBBY, SETTINGS. High contrast hover states."
+    },
+    "lobby": {
+      "layout": "Control Room Grid (Mode B). Left column (col-span-1) for connected players. Center/Right (col-span-2) for match details, map preview, and loadout.",
+      "elements": "Player slots use bento cards with neon cyan borders. 'START DEPLOYMENT' button pulsing at the bottom right."
+    },
+    "hud": {
+      "layout": "Absolute positioning over the 'game view'. Minimalist and pushed to the edges.",
+      "elements": "Bottom Left: Health/Armor bars with tech_green and cyan. Bottom Right: Ammo counter (massive typography). Top Left: Circular Minimap. Top Center: Objective text ('DESTROY THE HEART'). Center: Dynamic crosshair."
+    },
+    "game_over": {
+      "layout": "Centered flex layout with full screen overlay.",
+      "elements": "Blood Red overlay (bg-[#FF2A2A]/10 backdrop-blur-sm). Massive 'MISSION FAILED' or 'RECURSION BROKEN' in H1. 'RETURN TO MENU' CTA."
+    },
+    "settings": {
+      "layout": "Centered modal or dedicated screen using Glassmorphism surface.",
+      "elements": "Audio, Video, Controls tabs. Use Shadcn UI customized to look brutalist (sharp edges, no radius, 1px borders)."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Import Google Fonts: Rajdhani and IBM Plex Mono.",
+    "Implement a subtle scanline overlay (pointer-events-none) across the app to enhance the sci-fi tactical feel.",
+    "Buttons and cards MUST have sharp edges (rounded-none).",
+    "For the HUD view, use the deep space background image to simulate the 3D world behind the UI.",
+    "HUD elements must use Glassmorphism (bg-black/60 with backdrop-blur-md and 1px border-white/10) to ensure readability.",
+    "Add 'data-testid' to all interactive elements (buttons, lobby slots, navigation links).",
+    "Use Lucide-react for icons (crosshair, ammo, health, settings).",
+    "Do NOT use 'Inter' font. Stick strictly to Rajdhani and IBM Plex Mono."
+  ]
+}
