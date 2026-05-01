@@ -1,34 +1,144 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* COVENANT: RECURSION - Game Styles */
+
+.menu-bg {
+  position: relative;
+  min-height: 100vh;
+  background: var(--bg-base);
+  overflow: hidden;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.menu-bg::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(5,5,8,0.95) 0%, rgba(5,5,8,0.6) 50%, rgba(5,5,8,0.3) 100%);
+  z-index: 1;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.menu-content {
+  position: relative;
+  z-index: 2;
 }
 
-.App-link {
-    color: #61dafb;
+/* Menu item animations */
+.menu-item {
+  position: relative;
+  padding: 12px 24px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-left: 2px solid transparent;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.menu-item:hover {
+  border-left-color: var(--accent-cyan);
+  background: rgba(0, 229, 255, 0.05);
+  padding-left: 32px;
+}
+
+.menu-item:hover .menu-text {
+  color: var(--accent-cyan);
+  text-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+/* Game over overlay */
+.game-over-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 42, 42, 0.08);
+  backdrop-filter: blur(4px);
+}
+
+.victory-overlay {
+  background: rgba(0, 229, 255, 0.08);
+}
+
+/* Lobby player card */
+.player-slot {
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  padding: 16px;
+  transition: all 0.2s;
+}
+
+.player-slot.occupied {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
+}
+
+.player-slot.empty {
+  border-color: rgba(255, 255, 255, 0.1);
+  border-style: dashed;
+}
+
+/* Health bar */
+.health-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.health-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  background: linear-gradient(90deg, var(--accent-green), #00ff88);
+}
+
+.health-bar-fill.low {
+  background: linear-gradient(90deg, var(--accent-red), #ff6666);
+}
+
+/* Ammo counter */
+.ammo-counter {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Damage flash */
+@keyframes damage-flash {
+  0% { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+
+.damage-vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 150;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(255, 42, 42, 0.4) 100%);
+  animation: damage-flash 0.5s ease-out forwards;
+}
+
+/* Kill feed */
+.kill-feed {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 120;
+  pointer-events: none;
+}
+
+.kill-feed-item {
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  padding: 4px 12px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  border-left: 2px solid var(--accent-red);
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
