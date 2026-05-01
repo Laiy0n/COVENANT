@@ -1,7 +1,7 @@
 import React from 'react';
 import { RotateCcw, Home, Trophy, Skull } from 'lucide-react';
 
-export default function GameOver({ winner, kills, onRestart, onMenu }) {
+export default function GameOver({ winner, kills, deaths, round, score, onRestart, onMenu }) {
   const isVictory = winner === 'humans';
   
   return (
@@ -10,7 +10,6 @@ export default function GameOver({ winner, kills, onRestart, onMenu }) {
       data-testid="game-over-screen"
     >
       <div className="text-center">
-        {/* Icon */}
         <div className="mb-6">
           {isVictory ? (
             <Trophy size={64} className="text-[#00E5FF] mx-auto" />
@@ -19,7 +18,6 @@ export default function GameOver({ winner, kills, onRestart, onMenu }) {
           )}
         </div>
         
-        {/* Title */}
         <h1 className={`text-5xl md:text-7xl font-bold tracking-tighter uppercase font-['Rajdhani'] mb-4 ${
           isVictory ? 'text-[#00E5FF] neon-cyan' : 'text-[#FF2A2A] neon-red'
         }`}>
@@ -32,17 +30,27 @@ export default function GameOver({ winner, kills, onRestart, onMenu }) {
             : 'The aliens overwhelmed the squad. The Heart grows stronger.'}
         </p>
         
-        {/* Stats */}
+        {/* Match Stats */}
         <div className="bg-black/60 backdrop-blur-md border border-white/10 p-6 inline-block mb-8">
-          <div className="grid grid-cols-2 gap-6">
+          <div className="grid grid-cols-4 gap-6">
             <div>
               <p className="text-xs font-mono text-[#4B5365] uppercase tracking-widest">KILLS</p>
-              <p className="text-3xl font-['Rajdhani'] font-bold text-white">{kills}</p>
+              <p className="text-2xl font-['Rajdhani'] font-bold text-[#39FF14]">{kills}</p>
             </div>
             <div>
-              <p className="text-xs font-mono text-[#4B5365] uppercase tracking-widest">RESULT</p>
-              <p className={`text-3xl font-['Rajdhani'] font-bold ${isVictory ? 'text-[#00E5FF]' : 'text-[#FF2A2A]'}`}>
-                {isVictory ? 'WIN' : 'LOSS'}
+              <p className="text-xs font-mono text-[#4B5365] uppercase tracking-widest">DEATHS</p>
+              <p className="text-2xl font-['Rajdhani'] font-bold text-[#FF2A2A]">{deaths || 0}</p>
+            </div>
+            <div>
+              <p className="text-xs font-mono text-[#4B5365] uppercase tracking-widest">ROUNDS</p>
+              <p className="text-2xl font-['Rajdhani'] font-bold text-white">{round || 1}</p>
+            </div>
+            <div>
+              <p className="text-xs font-mono text-[#4B5365] uppercase tracking-widest">SCORE</p>
+              <p className="text-2xl font-['Rajdhani'] font-bold">
+                <span className="text-[#00E5FF]">{score?.humans || 0}</span>
+                <span className="text-[#4B5365]"> - </span>
+                <span className="text-[#FF2A2A]">{score?.aliens || 0}</span>
               </p>
             </div>
           </div>

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 2 testing of COVENANT: RECURSION (FPS prototype). Backend pytest: 5/5 passed. Frontend e2e: all 13 specified UI flows passed (menu render, DEPLOY SOLO -> operator-select, 5 operators visible with details panels, DEPLOY -> game view with R6 control bindings WASD/Q-E/C/SHIFT/RMB-ADS/R/F/1-2-3/SCROLL, BACK TO MENU from game, BACK from operator-select, SQUAD DEPLOY -> lobby with player-name-input + create-room-btn + room creation, SYSTEMS -> settings with all 3 tabs). Zero console errors during full e2e run.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/leaderboard POST", "issue": "Accepts arbitrary dict - no Pydantic LeaderboardUpdate model; non-blocking but recommended for input validation"},
+      {"endpoint": "/api/rooms/create", "issue": "Orphan rooms created via REST (without WebSocket connect) are never garbage collected - rooms dict can grow unbounded over time"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "GameView (singleplayer Three.js)", "issues": ["Three.js console deprecation warnings noted in iteration 1 (THREE.Clock, PCFSoftShadowMap) - non-blocking. Did not re-observe during pre-pointer-lock screen this run since canvas init is gated on click."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_covenant_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: Add Pydantic model for /api/leaderboard POST payload validation (player_name required, kills/deaths int).",
+    "Optional: Add periodic cleanup for empty rooms in `rooms` dict (orphans created via REST POST never get pruned).",
+    "Optional: Replace deprecated Three.js APIs (Clock -> Timer, PCFSoftShadowMap -> PCFShadowMap)."
+  ],
+  "critical_code_review_comments": [
+    "server.py: Two near-identical game_loop usage paths (multiplayer vs singleplayer WebSocket handlers). The singleplayer handler duplicates ~40 lines of logic from the multiplayer one - candidate for refactor into shared helper.",
+    "server.py: rooms dict has no expiry/cleanup for REST-created rooms - memory leak vector.",
+    "OperatorSelect.jsx: data-testid ids are 'operator-medic' and 'operator-hacker' but display names are PATCH and CIPHER - inconsistent. Test request acknowledges this; document the mapping clearly to avoid confusion.",
+    "OperatorSelect.jsx: detail panel uses hovered state preferentially over selected - if user selects then hovers another, the selection visually appears to switch in the panel. Minor UX consideration.",
+    "GameView pre-lock screen 'BACK TO MENU' button has no explicit data-testid. Test worked via text match, but adding data-testid='game-back-btn' is recommended.",
+    "Frontend uses absolute hosted image URL in MainMenu (customer-assets.emergentagent.com). If that asset becomes unavailable, the menu degrades gracefully (falls back to dark gradient) - acceptable."
+  ],
+  "updated_files": [
+    "/app/test_reports/pytest/pytest_results.xml (regenerated)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "N/A - no auth required",
+  "seed_data_creation": "Leaderboard entry 'TEST_Commander' from iteration 1 still present (idempotent upsert). New room created via lobby UI with player name 'TEST_T1' (in-memory only).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 13 review-request items pass. Test_ids verified: main-menu, menu-singleplayer, menu-multiplayer, menu-settings, operator-select, operator-{vanguard|sentinel|phantom|medic|hacker}, operator-deploy-btn (disabled until selection), operator-back-btn, lobby-screen, player-name-input, create-room-btn, lobby-back-btn, settings-panel, settings-tab-{controls|audio|video}, settings-back-btn. GameView pre-lock screen shows CLICK TO DEPLOY + full R6 control legend (WASD, SHIFT-Sprint, C-Crouch, Q/E-Lean L/R, LMB-Shoot, RMB-ADS, R-Reload, F-Ability, 1/2/3 or SCROLL-Switch weapon) and BACK TO MENU button (no data-testid - selected by text). Three.js pointer-lock gameplay (movement, weapon switching, ability F-key, round system) requires real mouse and is not automatable. Backend WebSocket endpoints /ws/game/{room_id} and /ws/singleplayer not exercised via automation but REST surface fully tested.",
+  "rca of the issue": "No issues found - all required tests pass."
+}

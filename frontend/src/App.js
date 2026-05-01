@@ -4,18 +4,20 @@ import MainMenu from "./components/MainMenu";
 import GameView from "./components/GameView";
 import Lobby from "./components/Lobby";
 import SettingsPanel from "./components/SettingsPanel";
+import OperatorSelect from "./components/OperatorSelect";
 
 function App() {
   const [screen, setScreen] = useState('menu');
   const [gameConfig, setGameConfig] = useState({
     mode: 'singleplayer',
     roomId: null,
-    playerName: 'Commander'
+    playerName: 'Commander',
+    operatorId: null
   });
 
   const handleStartSingleplayer = () => {
-    setGameConfig({ mode: 'singleplayer', roomId: null, playerName: 'Commander' });
-    setScreen('game');
+    setGameConfig(prev => ({ ...prev, mode: 'singleplayer', roomId: null }));
+    setScreen('operator-select');
   };
 
   const handleStartMultiplayer = () => {
@@ -26,9 +28,14 @@ function App() {
     setScreen('settings');
   };
 
-  const handleJoinGame = (roomId, playerName) => {
-    setGameConfig({ mode: 'multiplayer', roomId, playerName });
+  const handleOperatorSelected = (operatorId) => {
+    setGameConfig(prev => ({ ...prev, operatorId }));
     setScreen('game');
+  };
+
+  const handleJoinGame = (roomId, playerName) => {
+    setGameConfig(prev => ({ ...prev, mode: 'multiplayer', roomId, playerName }));
+    setScreen('operator-select');
   };
 
   const handleExitGame = () => {
@@ -41,7 +48,6 @@ function App() {
 
   return (
     <div className="App" data-testid="app-root">
-      {/* Scanlines overlay - always on */}
       <div className="scanlines" />
       
       {screen === 'menu' && (
@@ -52,11 +58,19 @@ function App() {
         />
       )}
       
+      {screen === 'operator-select' && (
+        <OperatorSelect
+          onSelect={handleOperatorSelected}
+          onBack={handleBack}
+        />
+      )}
+      
       {screen === 'game' && (
         <GameView 
           mode={gameConfig.mode}
           roomId={gameConfig.roomId}
           playerName={gameConfig.playerName}
+          operatorId={gameConfig.operatorId}
           onExit={handleExitGame}
         />
       )}
