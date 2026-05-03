@@ -265,8 +265,8 @@ export class GameEngine {
         case 'Digit1': this.weaponSystem?.switchWeapon(0); break;
         case 'Digit2': this.weaponSystem?.switchWeapon(1); break;
         case 'Digit3': this.weaponSystem?.switchWeapon(2); break;
-        case 'KeyF': this.useAbility(); break;
-        case 'KeyG': this.plantKey = true; break;
+        case 'KeyF': this.plantKey = true; break;   // F = plant device
+        case 'KeyQ': this.player.isLeaning = -1; break;
         default: break;
       }
     };
@@ -277,8 +277,7 @@ export class GameEngine {
         case 'KeyA': this.player.moveLeft = false; break;
         case 'KeyD': this.player.moveRight = false; break;
         case 'ShiftLeft': this.player.isSprinting = false; break;
-        case 'KeyQ': if (this.player.isLeaning === -1) this.player.isLeaning = 0; break;
-        case 'KeyG': this.plantKey = false; this.isPlanting = false; break;
+        case 'KeyF': this.plantKey = false; this.isPlanting = false; break;   // release plant
         case 'KeyE': if (this.player.isLeaning === 1) this.player.isLeaning = 0; break;
         default: break;
       }
@@ -373,14 +372,11 @@ export class GameEngine {
           this.sounds.play('kill');
         }
       } else if (hitObj.userData && hitObj.userData.type === 'heart') {
-        this.gameState.heartHealth -= weapon.damage;
-        this.createHitEffect(hit.point, 0xff4444);
-        this.sounds.play('hit');
-        
-        if (this.gameState.heartHealth <= 0) {
-          this.gameState.heartHealth = 0;
-          this.winRound('humans');
-        }
+        // Heart is IMMUNE to bullets — must use the Neural Disruptor device [F]
+        this.createHitEffect(hit.point, 0x440000); // dark hit effect to show it's immune
+        // Flash a message
+        if (this.onStateUpdate) this.onStateUpdate({ heartImmune: true });
+        setTimeout(() => { if (this.onStateUpdate) this.onStateUpdate({ heartImmune: false }); }, 1500);
       } else {
         // Hit wall - spark effect
         this.createHitEffect(hit.point, 0xffaa00);
@@ -584,15 +580,14 @@ export class GameEngine {
     this.camera.rotation.set(this.player.rotation.x, this.player.rotation.y, this.player.leanAngle, 'YXZ');
   }
   
-  checkCollision(position) {
-    const playerRadius = 0.4;
-    const playerBox = new THREE.Box3(
-      new THREE.Vector3(position.x - playerRadius, 0, position.z - playerRadius),
-      new THREE.Vector3(position.x + playerRadius, 2, position.z + playerRadius)
+  checkCollision(position, radius = 0.4) {
+    const box = new THREE.Box3(
+      new THREE.Vector3(position.x - radius, 0,          position.z - radius),
+      new THREE.Vector3(position.x + radius, 2, position.z + radius)
     );
     if (!this._wallBoxCache) return false;
-    for (const { box } of this._wallBoxCache) {
-      if (box.intersectsBox(playerBox)) return true;
+    for (const { box: wb } of this._wallBoxCache) {
+      if (wb.intersectsBox(box)) return true;
     }
     return false;
   }
@@ -618,7 +613,7 @@ export class GameEngine {
         // Spitter: keep distance, shoot blood balls
         if (dist > enemy.attackRange * 0.6) {
           const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta * 0.5);
-          enemy.mesh.position.copy(newPos);
+          if (!this.checkCollision(newPos, 0.35)) enemy.mesh.position.copy(newPos);
         }
         enemy.mesh.lookAt(this.player.position);
 
@@ -633,7 +628,15 @@ export class GameEngine {
         // Melee: charge at player
         if (dist > enemy.attackRange) {
           const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta);
-          enemy.mesh.position.copy(newPos);
+          // Slide along walls: try X and Z separately if direct path blocked
+          if (!this.checkCollision(newPos, 0.35)) {
+            enemy.mesh.position.copy(newPos);
+          } else {
+            const slideX = new THREE.Vector3(newPos.x, enemy.mesh.position.y, enemy.mesh.position.z);
+            const slideZ = new THREE.Vector3(enemy.mesh.position.x, enemy.mesh.position.y, newPos.z);
+            if (!this.checkCollision(slideX, 0.35)) enemy.mesh.position.copy(slideX);
+            else if (!this.checkCollision(slideZ, 0.35)) enemy.mesh.position.copy(slideZ);
+          }
           enemy.mesh.lookAt(this.player.position);
         } else if (currentTime - enemy.lastAttack > 1.0) {
           enemy.lastAttack = currentTime;
@@ -868,7 +871,8 @@ export class GameEngine {
       isPlanting: this.isPlanting,
       devicePlanted: this.devicePlanted,
       deviceTimer: Math.ceil(this.deviceTimer),
-      nearPlantZone: this.player.position.distanceTo(new THREE.Vector3(PLANT_POSITION.x, this.player.position.y, PLANT_POSITION.z)) < 3.0
+      nearPlantZone: this.player.position.distanceTo(new THREE.Vector3(PLANT_POSITION.x, this.player.position.y, PLANT_POSITION.z)) < 3.0,
+      heartImmune: false
     });
   }
   

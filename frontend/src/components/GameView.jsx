@@ -58,9 +58,9 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
 
   const bindings = [
     ['MOVE', 'WASD'], ['SPRINT', 'SHIFT'], ['CROUCH', 'C / CTRL'],
-    ['LEAN L / R', 'Q / E'], ['SHOOT', 'LMB'], ['ADS', 'RMB'],
+    ['LEAN RIGHT',      'E'], ['SHOOT', 'LMB'], ['ADS', 'RMB'],
     ['RELOAD', 'R'], ['ABILITY', 'F'], ['SWITCH WEAPON', '1 2 3 / SCROLL'],
-    ['PAUSE / SETTINGS', 'ESC or ⚙'],
+    ['PAUSE / SETTINGS',  'ESC or ⚙'],
   ];
 
   return (
@@ -275,13 +275,13 @@ export default function GameView({ mode, roomId, playerName, operatorId, onExit 
                 <p><span className="text-[#00E5FF]">WASD</span> — Move</p>
                 <p><span className="text-[#00E5FF]">SHIFT</span> — Sprint</p>
                 <p><span className="text-[#00E5FF]">C / CTRL</span> — Crouch</p>
-                <p><span className="text-[#00E5FF]">Q / E</span> — Lean</p>
+                <p><span className="text-[#00E5FF]">E</span> — Lean right</p>
               </div>
               <div className="text-left space-y-1">
                 <p><span className="text-[#00E5FF]">LMB</span> — Shoot</p>
                 <p><span className="text-[#00E5FF]">RMB</span> — ADS</p>
                 <p><span className="text-[#00E5FF]">R</span> — Reload</p>
-                <p><span className="text-[#00E5FF]">F</span> — Ability</p>
+                <p><span className="text-[#00E5FF]">F</span> — Plant device</p>
               </div>
               <div className="col-span-2 pt-2 border-t border-white/5 text-center">
                 <p><span className="text-[#00E5FF]">1/2/3</span> ou <span className="text-[#00E5FF]">SCROLL</span> — Arma &nbsp;|&nbsp; <span className="text-[#00E5FF]">ESC</span> — Pause</p>

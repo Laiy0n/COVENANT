@@ -31,6 +31,20 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
       {/* Damage vignette */}
       {gameState.damaged && <div className="damage-vignette" />}
 
+      {/* Heart immune flash */}
+      {gameState.heartImmune && (
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 pointer-events-none z-10">
+          <div className="bg-black/80 border border-[#FF2A2A] px-6 py-3 text-center">
+            <p className="text-sm font-mono text-[#FF2A2A] uppercase tracking-widest animate-pulse">
+              ⚠ HEART IS IMMUNE TO BULLETS
+            </p>
+            <p className="text-xs font-mono text-[#8B93A6] mt-1">
+              Plant the Neural Disruptor — press [F] near the heart
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* FPS Counter */}
       {showFPS && (
         <div className="absolute top-4 left-4 pointer-events-none z-10">
@@ -82,7 +96,7 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
           </div>
           <div className="flex items-center gap-2">
             <Target size={10} className="text-[#FF2A2A]" />
-            <span className="text-xs font-mono text-[#FF2A2A] uppercase tracking-wider">KILL ALL ALIENS or PLANT DISRUPTOR</span>
+            <span className="text-xs font-mono text-[#FF2A2A] uppercase tracking-wider">KILL ALL ALIENS  or  PLANT DISRUPTOR [F near heart]</span>
           </div>
           <div className="mt-1 w-48 mx-auto h-1 bg-white/10 overflow-hidden">
             <div className="h-full transition-all duration-300" style={{ width:`${heartPct}%`, background:'linear-gradient(90deg,#FF2A2A,#ff6666)' }} />
@@ -172,7 +186,7 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
         {gameState.nearPlantZone && !gameState.devicePlanted && (
           <div className="bg-black/80 border border-[#00E5FF] px-4 py-2 text-center">
             <p className="text-xs font-mono text-[#00E5FF] uppercase tracking-widest">
-              {gameState.isPlanting ? 'PLANTING DEVICE...' : '[G] PLANT NEURAL DISRUPTOR'}
+              {gameState.isPlanting ? 'PLANTING DEVICE...' : '[F] PLANT NEURAL DISRUPTOR'}
             </p>
             {gameState.isPlanting && (
               <div className="mt-1 h-1.5 bg-white/10 w-48 mx-auto">

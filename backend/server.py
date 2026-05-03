@@ -10,7 +10,7 @@ import random
 import math
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Dict
+from typing import List, Dict, Optional
 import uuid
 from datetime import datetime, timezone
 
@@ -51,7 +51,7 @@ class GameRoom:
         self.heart_max_health = 1000
         self.game_active = False
         self.game_over = False
-        self.winner = None
+        self.winner: Optional[str] = None
         self.map_seed = random.randint(0, 99999)
         
     def add_player(self, player_id: str, name: str):
