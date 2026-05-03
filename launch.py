@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-COVENANT: RECURSION - Desktop Launcher
+COVENANT: RECURSION - Desktop Launcher v4
 Corre: python launch.py
 """
+# VERSAO 4 - Sem pywebview, usa Edge/Chrome modo app
 import subprocess, sys, os, shutil, time, json
 from pathlib import Path
 from urllib.request import urlopen
@@ -13,7 +14,6 @@ FRONTEND      = ROOT / "frontend"
 BACKEND_PORT  = 8001
 FRONTEND_PORT = 3000
 
-# ── Utilitarios ──────────────────────────────────────────────────────────────
 def title(msg):
     print("\n" + "="*52)
     print(f"  {msg}")
@@ -49,11 +49,33 @@ def wait_for_server(url, timeout=180, label="servidor"):
     print(" TIMEOUT")
     return False
 
-# ── INICIO ───────────────────────────────────────────────────────────────────
-title("COVENANT: RECURSION - Desktop Launcher")
+def open_game_window(url):
+    w, h = 1280, 720
+    edge_paths = [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ]
+    for path in edge_paths:
+        if os.path.isfile(path):
+            subprocess.Popen([path, f"--app={url}",
+                              f"--window-size={w},{h}", "--disable-extensions"])
+            ok("Janela aberta com Microsoft Edge")
+            return True
+    chrome_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]
+    for path in chrome_paths:
+        if os.path.isfile(path):
+            subprocess.Popen([path, f"--app={url}", f"--window-size={w},{h}"])
+            ok("Janela aberta com Google Chrome")
+            return True
+    return False
+
+# ─────────────────────────────────────────────────────────────────────────────
+title("COVENANT: RECURSION - Desktop Launcher v4")
 print(f"  Diretorio: {ROOT}")
 
-# 1. Verificar Node
 step(1, "A verificar requisitos")
 print(f"    Python {sys.version.split()[0]}  OK")
 if not shutil.which("node"):
@@ -61,16 +83,18 @@ if not shutil.which("node"):
     input("Prima ENTER para sair...")
     sys.exit(1)
 ok(f"Node.js {run('node --version', capture=True).stdout.strip()}")
-ok(f"npm {run('npm --version', capture=True).stdout.strip()}")
+ok(f"npm    {run('npm --version', capture=True).stdout.strip()}")
 
-# 2. Instalar dependencias Python (incluindo pywebview para a janela)
-step(2, "A instalar dependencias Python")
-pkgs = "fastapi uvicorn python-dotenv motor pymongo pydantic websockets pywebview"
-print("    pip install ... (aguarda)")
-run_check(f'"{sys.executable}" -m pip install {pkgs} --quiet', label="pip install")
+# Apenas os pacotes que o backend REALMENTE usa - sem pywebview, sem pythonnet
+step(2, "A instalar dependencias Python do backend")
+pkgs = "fastapi uvicorn python-dotenv motor pymongo pydantic websockets"
+print(f"    A instalar: {pkgs}")
+run_check(
+    f'"{sys.executable}" -m pip install {pkgs} --prefer-binary --quiet',
+    label="pip install backend"
+)
 ok("Dependencias Python instaladas")
 
-# 3. Configurar .env
 step(3, "A configurar ambiente")
 if not (BACKEND / ".env").exists():
     (BACKEND / ".env").write_text(
@@ -89,11 +113,11 @@ else:
 )
 ok("frontend/.env criado")
 
-# 4. npm install
 step(4, "A verificar dependencias npm")
-nm = FRONTEND / "node_modules"
+nm        = FRONTEND / "node_modules"
 react_pkg = nm / "react" / "package.json"
-need_install = not nm.exists()
+vite_pkg  = nm / "vite" / "package.json"
+need_install = not nm.exists() or not vite_pkg.exists()
 
 if react_pkg.exists():
     try:
@@ -106,6 +130,11 @@ if react_pkg.exists():
     except:
         pass
 
+if not vite_pkg.exists() and nm.exists():
+    warn("Vite nao encontrado - a reinstalar node_modules...")
+    shutil.rmtree(nm)
+    need_install = True
+
 if need_install:
     print("    npm install --legacy-peer-deps (pode demorar 2-5 min)...")
     r = run("npm install --legacy-peer-deps", cwd=FRONTEND)
@@ -113,14 +142,13 @@ if need_install:
         warn("Tentativa 2: npm install --force")
         r = run("npm install --force", cwd=FRONTEND)
         if r.returncode != 0:
-            err(f"npm install falhou!\nTenta manualmente:\n  cd \"{FRONTEND}\"\n  npm install --legacy-peer-deps")
+            err("npm install falhou!")
             input("Prima ENTER para sair...")
             sys.exit(1)
     ok("npm install concluido")
 else:
-    ok("node_modules OK")
+    ok("node_modules OK (com Vite)")
 
-# 5. Iniciar Backend
 step(5, "A iniciar Backend (porta 8001)")
 backend_cmd = (
     f'"{sys.executable}" -m uvicorn server:app '
@@ -135,11 +163,9 @@ else:
     backend_proc = subprocess.Popen(backend_cmd, cwd=BACKEND, shell=True)
 ok("Backend a iniciar...")
 
-# 6. Iniciar Frontend com CRACO (necessario para aliases @/)
-step(6, "A iniciar Frontend React com Vite (porta 3000)")
+step(6, "A iniciar Frontend com Vite (porta 3000)")
 env = os.environ.copy()
-env["BROWSER"] = "none"   # nao abrir browser automaticamente
-
+env["BROWSER"] = "none"
 if sys.platform == "win32":
     frontend_proc = subprocess.Popen(
         "npx vite --port 3000", cwd=FRONTEND, shell=True, env=env,
@@ -149,57 +175,40 @@ else:
     frontend_proc = subprocess.Popen(
         "npx vite --port 3000", cwd=FRONTEND, shell=True, env=env
     )
-ok("Frontend a compilar (aguarda ~30-60s)...")
+ok("Frontend a arrancar...")
 
-# 7. Aguardar servidores prontos
 print()
 wait_for_server(f"http://localhost:{BACKEND_PORT}/docs", label="Backend ")
-frontend_ok = wait_for_server(f"http://localhost:{FRONTEND_PORT}", label="Frontend", timeout=180)
+frontend_ok = wait_for_server(f"http://localhost:{FRONTEND_PORT}",
+                               label="Frontend", timeout=60)
 
 if not frontend_ok:
     err("Frontend nao arrancou.\nVe a janela 'COVENANT Frontend' para o erro.")
     input("Prima ENTER para sair...")
     sys.exit(1)
 
-# 8. Abrir janela nativa do jogo
 title("A ABRIR COVENANT: RECURSION")
-print("  A iniciar janela do jogo...\n")
-
-try:
-    import webview
-
-    def on_closed():
-        print("\n  Janela fechada - a parar servidores...")
-        try:
-            frontend_proc.terminate()
-            backend_proc.terminate()
-        except:
-            pass
-
-    window = webview.create_window(
-        title            = "COVENANT: RECURSION",
-        url              = f"http://localhost:{FRONTEND_PORT}",
-        width            = 1280,
-        height           = 720,
-        resizable        = True,
-        fullscreen       = False,
-        min_size         = (800, 600),
-        background_color = "#050508",
-    )
-    window.events.closed += on_closed
-    webview.start(debug=False)
-
-except Exception as e:
-    # Fallback: abrir no browser se pywebview falhar
-    warn(f"Janela nativa falhou ({e}) - a abrir no browser...")
+game_url = f"http://localhost:{FRONTEND_PORT}"
+opened = open_game_window(game_url)
+if not opened:
     import webbrowser
-    webbrowser.open(f"http://localhost:{FRONTEND_PORT}")
-    print("\n  Jogo aberto no browser.")
-    print("  Prima Ctrl+C para parar os servidores.\n")
-    try:
-        frontend_proc.wait()
-    except KeyboardInterrupt:
-        frontend_proc.terminate()
-        backend_proc.terminate()
+    warn("Edge/Chrome nao encontrado - a abrir no browser padrao...")
+    webbrowser.open(game_url)
+
+print(f"""
+  Jogo a correr em: {game_url}
+
+  Janelas abertas:
+    - "COVENANT Backend"   (porta {BACKEND_PORT})
+    - "COVENANT Frontend"  (porta {FRONTEND_PORT})
+
+  Prima Ctrl+C aqui para parar tudo.
+""")
+try:
+    frontend_proc.wait()
+except KeyboardInterrupt:
+    print("\n  A parar servidores...")
+    frontend_proc.terminate()
+    backend_proc.terminate()
 
 print("  Ate a proxima!")
