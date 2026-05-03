@@ -202,28 +202,21 @@ export class GameEngine {
   }
   
   setupControls() {
-    this.container.addEventListener('click', () => {
-      if (!this.isLocked) {
-        this.container.requestPointerLock();
-      }
-    });
-    
-    document.addEventListener('pointerlockchange', () => {
+    this._onClick = () => {
+      if (!this.isLocked) this.container.requestPointerLock();
+    };
+    this._onPointerLockChange = () => {
       this.isLocked = document.pointerLockElement === this.container;
-      if (this.onStateUpdate) {
-        this.onStateUpdate({ locked: this.isLocked });
-      }
-    });
-    
-    document.addEventListener('mousemove', (e) => {
+      if (this.onStateUpdate) this.onStateUpdate({ locked: this.isLocked });
+    };
+    this._onMouseMove = (e) => {
       if (!this.isLocked) return;
       const sens = this.player.isADS ? this.sensitivity * 0.5 : this.sensitivity;
       this.player.rotation.y -= e.movementX * sens;
       this.player.rotation.x -= e.movementY * sens;
       this.player.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.player.rotation.x));
-    });
-    
-    document.addEventListener('keydown', (e) => {
+    };
+    this._onKeyDown = (e) => {
       if (!this.isLocked) return;
       switch (e.code) {
         case 'KeyW': this.player.moveForward = true; break;
@@ -245,9 +238,8 @@ export class GameEngine {
         case 'KeyF': this.useAbility(); break;
         default: break;
       }
-    });
-    
-    document.addEventListener('keyup', (e) => {
+    };
+    this._onKeyUp = (e) => {
       switch (e.code) {
         case 'KeyW': this.player.moveForward = false; break;
         case 'KeyS': this.player.moveBackward = false; break;
@@ -258,10 +250,8 @@ export class GameEngine {
         case 'KeyE': if (this.player.isLeaning === 1) this.player.isLeaning = 0; break;
         default: break;
       }
-    });
-    
-    // Shoot (left click)
-    document.addEventListener('mousedown', (e) => {
+    };
+    this._onMouseDown = (e) => {
       if (!this.isLocked || !this.player.isAlive) return;
       if (e.button === 0) this.shoot();
       if (e.button === 2) {
@@ -269,29 +259,35 @@ export class GameEngine {
         this.camera.fov = 45;
         this.camera.updateProjectionMatrix();
       }
-    });
-    
-    document.addEventListener('mouseup', (e) => {
+    };
+    this._onMouseUp = (e) => {
       if (e.button === 2) {
         this.player.isADS = false;
         this.camera.fov = 75;
         this.camera.updateProjectionMatrix();
       }
-    });
-    
-    // Prevent context menu
-    this.container.addEventListener('contextmenu', (e) => e.preventDefault());
-    
-    // Mouse wheel for weapon switch
-    document.addEventListener('wheel', (e) => {
+    };
+    this._onContextMenu = (e) => e.preventDefault();
+    this._onWheel = (e) => {
       if (!this.isLocked) return;
       if (e.deltaY > 0) this.weaponSystem?.nextWeapon();
       else this.weaponSystem?.prevWeapon();
-    });
+    };
+
+    this.container.addEventListener('click', this._onClick);
+    document.addEventListener('pointerlockchange', this._onPointerLockChange);
+    document.addEventListener('mousemove', this._onMouseMove);
+    document.addEventListener('keydown', this._onKeyDown);
+    document.addEventListener('keyup', this._onKeyUp);
+    document.addEventListener('mousedown', this._onMouseDown);
+    document.addEventListener('mouseup', this._onMouseUp);
+    this.container.addEventListener('contextmenu', this._onContextMenu);
+    document.addEventListener('wheel', this._onWheel);
   }
   
   shoot() {
     if (!this.weaponSystem) return;
+    if (!this.weaponSystem.canShoot()) return;
     
     const weapon = this.weaponSystem.getCurrentWeapon();
     if (!weapon || weapon.ammo <= 0 || weapon.isReloading) return;
@@ -665,6 +661,7 @@ export class GameEngine {
   }
   
   startRound() {
+    if (this.roundInterval) clearInterval(this.roundInterval);
     this.gameState.roundActive = true;
     this.gameState.roundTimeLeft = this.gameState.roundTime;
     this.roundInterval = setInterval(() => {
@@ -795,6 +792,18 @@ export class GameEngine {
     if (this.animationId) cancelAnimationFrame(this.animationId);
     if (this.roundInterval) clearInterval(this.roundInterval);
     window.removeEventListener('resize', this.onResize.bind(this));
+    
+    // Remove all stored event listeners
+    if (this._onClick) this.container.removeEventListener('click', this._onClick);
+    if (this._onPointerLockChange) document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    if (this._onMouseMove) document.removeEventListener('mousemove', this._onMouseMove);
+    if (this._onKeyDown) document.removeEventListener('keydown', this._onKeyDown);
+    if (this._onKeyUp) document.removeEventListener('keyup', this._onKeyUp);
+    if (this._onMouseDown) document.removeEventListener('mousedown', this._onMouseDown);
+    if (this._onMouseUp) document.removeEventListener('mouseup', this._onMouseUp);
+    if (this._onContextMenu) this.container.removeEventListener('contextmenu', this._onContextMenu);
+    if (this._onWheel) document.removeEventListener('wheel', this._onWheel);
+
     if (this.renderer) {
       this.renderer.dispose();
       if (this.container && this.renderer.domElement) {

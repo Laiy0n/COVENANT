@@ -52,7 +52,7 @@ echo [1/3] A instalar dependencias Python...
 echo ----------------------------------------
 cd /d "%ROOT%backend"
 %PYTHON% -m pip install --upgrade pip >nul 2>&1
-%PYTHON% -m pip install fastapi uvicorn python-dotenv motor pymongo pydantic
+%PYTHON% -m pip install fastapi uvicorn python-dotenv motor pymongo pydantic websockets
 echo.
 echo [OK] Dependencias Python instaladas!
 echo.
