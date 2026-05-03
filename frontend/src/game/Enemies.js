@@ -5,7 +5,7 @@ const ENEMY_TYPES = {
     color: 0x4a1a4a,
     emissive: 0x330033,
     scale: 0.7,
-    speed: 5.5,
+    speed: 4.4,
     health: 50,
     damage: 12
   },
@@ -13,7 +13,7 @@ const ENEMY_TYPES = {
     color: 0x1a4a1a,
     emissive: 0x003300,
     scale: 1.0,
-    speed: 3.5,
+    speed: 2.8,
     health: 80,
     damage: 18
   },
@@ -21,7 +21,7 @@ const ENEMY_TYPES = {
     color: 0x4a1a1a,
     emissive: 0x440000,
     scale: 1.5,
-    speed: 2.0,
+    speed: 1.6,
     health: 180,
     damage: 35
   }
@@ -91,9 +91,9 @@ export function createEnemies(scene, count) {
       group.add(leg);
     }
     
-    // Spawn position - scattered around the map
+    // Spawn position - scattered around the map, farther out
     const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
-    const dist = 12 + Math.random() * 18;
+    const dist = 20 + Math.random() * 25;
     group.position.set(
       Math.cos(angle) * dist,
       type === 'crawler' ? 0.8 : 1.5,

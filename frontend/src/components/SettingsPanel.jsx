@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Volume2, Monitor, Gamepad2 } from 'lucide-react';
 
-export default function SettingsPanel({ onBack }) {
+export default function SettingsPanel({ settings, onChange, onBack }) {
   const [activeTab, setActiveTab] = useState('controls');
-  const [sensitivity, setSensitivity] = useState(50);
-  const [volume, setVolume] = useState(70);
 
   const tabs = [
     { id: 'controls', label: 'CONTROLS', icon: Gamepad2 },
@@ -80,14 +78,15 @@ export default function SettingsPanel({ onBack }) {
               {/* Sensitivity */}
               <div className="pt-4">
                 <label className="text-xs font-mono text-[#8B93A6] uppercase tracking-widest block mb-3">
-                  MOUSE SENSITIVITY: {sensitivity}%
+                  SENS MULTIPLIER: {Math.round(settings.sensMult * 100)}%
                 </label>
                 <input
                   type="range"
-                  min="10"
-                  max="100"
-                  value={sensitivity}
-                  onChange={(e) => setSensitivity(e.target.value)}
+                  min="50"
+                  max="500"
+                  step="10"
+                  value={Math.round(settings.sensMult * 100)}
+                  onChange={(e) => onChange({ sensMult: parseFloat(e.target.value) / 100 })}
                   data-testid="sensitivity-slider"
                   className="w-full h-1 bg-[#12141C] appearance-none cursor-pointer accent-[#00E5FF]"
                 />
@@ -95,23 +94,9 @@ export default function SettingsPanel({ onBack }) {
             </div>
           )}
 
-          {activeTab === 'audio' && (
+{activeTab === 'audio' && (
             <div className="space-y-6">
               <h3 className="text-lg font-['Rajdhani'] font-semibold uppercase text-white">Audio Settings</h3>
-              <div className="pt-4">
-                <label className="text-xs font-mono text-[#8B93A6] uppercase tracking-widest block mb-3">
-                  MASTER VOLUME: {volume}%
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={volume}
-                  onChange={(e) => setVolume(e.target.value)}
-                  data-testid="volume-slider"
-                  className="w-full h-1 bg-[#12141C] appearance-none cursor-pointer accent-[#00E5FF]"
-                />
-              </div>
               <p className="text-xs font-mono text-[#4B5365]">
                 Audio system not yet implemented in prototype.
               </p>
@@ -121,6 +106,21 @@ export default function SettingsPanel({ onBack }) {
           {activeTab === 'video' && (
             <div className="space-y-6">
               <h3 className="text-lg font-['Rajdhani'] font-semibold uppercase text-white">Video Settings</h3>
+              <div className="pt-4">
+                <label className="text-xs font-mono text-[#8B93A6] uppercase tracking-widest block mb-3">
+                  BRIGHTNESS: {(settings.brightness * 100).toFixed(0)}%
+                </label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="3.0"
+                  step="0.1"
+                  value={settings.brightness}
+                  onChange={(e) => onChange({ brightness: parseFloat(e.target.value) })}
+                  data-testid="brightness-slider"
+                  className="w-full h-1 bg-[#12141C] appearance-none cursor-pointer accent-[#00E5FF]"
+                />
+              </div>
               <p className="text-xs font-mono text-[#4B5365]">
                 Rendering uses WebGL via Three.js. Quality adapts to your hardware automatically.
               </p>

@@ -9,6 +9,8 @@ export class GameEngine {
     this.container = container;
     this.onStateUpdate = onStateUpdate;
     this.config = config;
+    this.settings = config.settings || { brightness: 1.8, sensMult: 1.0 };
+    this.sensitivity = 0.002 * this.settings.sensMult;
     this.scene = null;
     this.camera = null;
     this.renderer = null;
@@ -44,7 +46,9 @@ export class GameEngine {
       crouchHeight: 1.6,
       targetCrouchHeight: 1.6,
       headBob: 0,
-      stepTimer: 0
+      stepTimer: 0,
+      sprintStamina: 100,
+      spawnInvuln: 3.0
     };
     
     // Game state
@@ -71,7 +75,7 @@ export class GameEngine {
     this.damageIndicators = [];
     
     this.raycaster = new THREE.Raycaster();
-    this.sensitivity = 0.002;
+    this.sensitivity = this.settings.sensitivity;
     
     // Character/operator abilities
     this.operator = config.operator || null;
@@ -84,8 +88,8 @@ export class GameEngine {
   
   init() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x050508);
-    this.scene.fog = new THREE.Fog(0x050508, 25, 70);
+    this.scene.background = new THREE.Color(0x0a0a14);
+    this.scene.fog = new THREE.Fog(0x0a0a14, 40, 100);
     
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.copy(this.player.position);
@@ -96,13 +100,13 @@ export class GameEngine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.8;
+    this.renderer.toneMappingExposure = 2.5 * this.settings.brightness;
     this.container.appendChild(this.renderer.domElement);
     
     this.setupLighting();
     this.mapObjects = createMap(this.scene);
     this.createHeart();
-    this.enemies = createEnemies(this.scene, 5);
+    this.enemies = createEnemies(this.scene, 3);
     
     // Initialize weapon system
     this.weaponSystem = new WeaponSystem(this.scene, this.camera, this.operator);
@@ -116,18 +120,22 @@ export class GameEngine {
   }
   
   setupLighting() {
-    const ambient = new THREE.AmbientLight(0x1a1a2e, 0.5);
-    this.scene.add(ambient);
+    const brightness = this.settings.brightness;
     
-    const dirLight = new THREE.DirectionalLight(0x4466ff, 0.3);
+    const ambient = new THREE.AmbientLight(0x2a2a4e, 1.6 * brightness);
+    this.scene.add(ambient);
+    this.ambientLight = ambient;
+    
+    const dirLight = new THREE.DirectionalLight(0x4466ff, 1.2 * brightness);
     dirLight.position.set(10, 20, 10);
     dirLight.castShadow = true;
     this.scene.add(dirLight);
+    this.dirLight = dirLight;
     
     // Emergency red lights
     const redPositions = [[10, 3, 0], [-10, 3, 10], [15, 3, -15], [-15, 3, 20]];
     redPositions.forEach(pos => {
-      const light = new THREE.PointLight(0xff2222, 1.5, 15);
+      const light = new THREE.PointLight(0xff2222, 1.5 * brightness, 15);
       light.position.set(...pos);
       this.scene.add(light);
     });
@@ -135,13 +143,13 @@ export class GameEngine {
     // Cyan tech lights
     const cyanPositions = [[0, 4, -15], [0, 4, 15], [-20, 4, 0], [20, 4, 0]];
     cyanPositions.forEach(pos => {
-      const light = new THREE.PointLight(0x00e5ff, 1.5, 18);
+      const light = new THREE.PointLight(0x00e5ff, 1.5 * brightness, 18);
       light.position.set(...pos);
       this.scene.add(light);
     });
     
     // Heart glow
-    this.heartLight = new THREE.PointLight(0xff4444, 3, 25);
+    this.heartLight = new THREE.PointLight(0xff4444, 3 * brightness, 25);
     this.heartLight.position.set(0, 3, -20);
     this.scene.add(this.heartLight);
   }
@@ -229,8 +237,8 @@ export class GameEngine {
           this.player.isCrouching = !this.player.isCrouching;
           this.player.targetCrouchHeight = this.player.isCrouching ? 1.0 : 1.6;
           break;
-        case 'KeyQ': this.player.isLeaning = -1; break;
-        case 'KeyE': this.player.isLeaning = 1; break;
+        case 'KeyQ': this.player.isLeaning = 1; break;
+        case 'KeyE': this.player.isLeaning = -1; break;
         case 'KeyR': this.reload(); break;
         case 'Digit1': this.weaponSystem?.switchWeapon(0); break;
         case 'Digit2': this.weaponSystem?.switchWeapon(1); break;
@@ -490,9 +498,19 @@ export class GameEngine {
   updateMovement(delta) {
     if (!this.player.isAlive) return;
     
+    // Sprint stamina
+    if (this.player.isSprinting) {
+      this.player.sprintStamina -= delta * 25;
+      if (this.player.sprintStamina <= 0) {
+        this.player.isSprinting = false;
+      }
+    } else {
+      this.player.sprintStamina = Math.min(100, this.player.sprintStamina + delta * 15);
+    }
+    
     // R6 Siege style speeds
     let speed = 5.5; // Base walk speed
-    if (this.player.isSprinting && !this.player.isADS) speed = 9;
+    if (this.player.isSprinting && this.player.sprintStamina > 20 && !this.player.isADS) speed = 9;
     if (this.player.isCrouching) speed = 3;
     if (this.player.isADS) speed = 3.5;
     
@@ -561,6 +579,9 @@ export class GameEngine {
   }
   
   updateEnemyAI(delta) {
+    // Spawn invuln
+    this.player.spawnInvuln -= delta;
+    
     for (const enemy of this.enemies) {
       if (!enemy.alive) continue;
       
@@ -578,18 +599,22 @@ export class GameEngine {
       const dist = enemy.mesh.position.distanceTo(this.player.position);
       
       if (dist > 2.5) {
-        const moveSpeed = enemy.speed * delta;
+        const moveSpeed = enemy.speed * delta * 0.8; // 20% slower
         const newPos = enemy.mesh.position.clone().add(dir.clone().multiplyScalar(moveSpeed));
         enemy.mesh.position.copy(newPos);
         enemy.mesh.lookAt(this.player.position);
       } else {
         // Attack
         const currentTime = this.clock.getElapsedTime();
-        if (!enemy.lastAttack || currentTime - enemy.lastAttack > 1.0) {
+        if (!enemy.lastAttack || currentTime - enemy.lastAttack > 1.2) { // Slightly slower attack
           enemy.lastAttack = currentTime;
           
-          // Damage calc with armor
-          let damage = enemy.damage;
+          if (this.player.spawnInvuln > 0) continue; // Invuln
+          
+          // Distance scaled damage
+          const damageMultiplier = Math.max(0.2, dist / 10);
+          let damage = enemy.damage * damageMultiplier;
+          
           if (this.player.armor > 0) {
             const armorAbsorb = Math.min(damage * 0.6, this.player.armor);
             this.player.armor -= armorAbsorb;
@@ -622,8 +647,10 @@ export class GameEngine {
     
     if (aliveCount === 0 && !this.gameState.gameOver) {
       this.gameState.wave++;
-      const newEnemies = createEnemies(this.scene, Math.min(12, 3 + this.gameState.wave * 2));
+      const newCount = Math.min(12, 3 + this.gameState.wave * 2);
+      const newEnemies = createEnemies(this.scene, newCount);
       this.enemies.push(...newEnemies);
+      if (this.enemies.length > 50) this.enemies.splice(0, this.enemies.length - 50);
     }
   }
   
@@ -646,6 +673,9 @@ export class GameEngine {
       ind.intensity = ind.time / 2.0;
       return ind.time > 0;
     });
+    if (this.damageIndicators.length > 20) {
+      this.damageIndicators.splice(0, this.damageIndicators.length - 20);
+    }
   }
   
   updateHeart(delta) {
@@ -752,11 +782,27 @@ export class GameEngine {
       abilityCharge: this.abilityCharge,
       abilityActive: this.abilityActive,
       operatorId: this.operator?.id,
-      damageIndicators: this.damageIndicators
+      damageIndicators: this.damageIndicators,
+      sprintStamina: this.player.sprintStamina,
+      spawnInvuln: Math.max(0, this.player.spawnInvuln)
     });
   }
   
   animate() {
+    const time = this.clock.getElapsedTime();
+    
+    // Throttled brightness update (every 0.1s)
+    if (!this.lastBrightUpdate || time - this.lastBrightUpdate > 0.1) {
+      this.lastBrightUpdate = time;
+      if (this.settings) {
+        const brightness = this.settings.brightness;
+        if (this.ambientLight) this.ambientLight.intensity = 1.0 * brightness;
+        if (this.dirLight) this.dirLight.intensity = 0.8 * brightness;
+        if (this.heartLight) this.heartLight.intensity = 4 * brightness;
+        this.renderer.toneMappingExposure = 1.8 * brightness;
+      }
+    }
+    
     this.animationId = requestAnimationFrame(this.animate.bind(this));
     const delta = Math.min(this.clock.getDelta(), 0.1);
     
@@ -778,7 +824,12 @@ export class GameEngine {
       }
     }
     
-    this.updateHUD();
+    // Throttled HUD
+    if (!this.lastHUDTime || time - this.lastHUDTime > 0.05) {
+      this.lastHUDTime = time;
+      this.updateHUD();
+    }
+    
     this.renderer.render(this.scene, this.camera);
   }
   

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "@/App.css";
 import MainMenu from "./components/MainMenu";
 import GameView from "./components/GameView";
@@ -14,6 +14,25 @@ function App() {
     playerName: 'Commander',
     operatorId: null
   });
+  const [settings, setSettings] = useState({
+    brightness: 1.8,
+    sensMult: 1.0
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem('covenantSettings');
+    if (saved) {
+      setSettings(JSON.parse(saved));
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('covenantSettings', JSON.stringify(settings));
+  }, [settings]);
+
+  const updateSettings = (newSettings) => {
+    setSettings(prev => ({ ...prev, ...newSettings }));
+  };
 
   const handleStartSingleplayer = () => {
     setGameConfig(prev => ({ ...prev, mode: 'singleplayer', roomId: null }));
@@ -71,6 +90,7 @@ function App() {
           roomId={gameConfig.roomId}
           playerName={gameConfig.playerName}
           operatorId={gameConfig.operatorId}
+          settings={settings}
           onExit={handleExitGame}
         />
       )}
@@ -83,10 +103,11 @@ function App() {
       )}
       
       {screen === 'settings' && (
-        <SettingsPanel onBack={handleBack} />
+        <SettingsPanel settings={settings} onChange={updateSettings} onBack={handleBack} />
       )}
     </div>
   );
 }
 
 export default App;
+
