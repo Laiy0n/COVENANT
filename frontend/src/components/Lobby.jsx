@@ -5,7 +5,8 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
 export default function Lobby({ onBack, onStartGame }) {
   const [playerName, setPlayerName] = useState('');
-  const [roomId, setRoomId] = useState('');
+  const [roomId, setRoomId] = useState('');       // sala criada pelo usuário
+  const [joinInput, setJoinInput] = useState(''); // campo "direct join"
   const [rooms, setRooms] = useState([]);
   const [creating, setCreating] = useState(false);
 
@@ -177,14 +178,15 @@ export default function Lobby({ onBack, onStartGame }) {
                   type="text"
                   placeholder="Room code..."
                   data-testid="direct-join-input"
+                  value={joinInput}
                   className="flex-1 bg-[#12141C] border border-white/10 px-4 py-2 text-white font-mono text-sm focus:border-[#00E5FF] focus:outline-none transition-colors placeholder:text-[#4B5365]"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') joinRoom(e.target.value);
+                    if (e.key === 'Enter') joinRoom(joinInput);
                   }}
-                  onChange={(e) => setRoomId(e.target.value)}
+                  onChange={(e) => setJoinInput(e.target.value)}
                 />
                 <button
-                  onClick={() => joinRoom(roomId)}
+                  onClick={() => joinRoom(joinInput)}
                   data-testid="direct-join-btn"
                   className="bg-transparent border border-white/20 text-white hover:border-[#00E5FF] hover:text-[#00E5FF] transition-all duration-200 uppercase tracking-widest px-4 py-2 rounded-none text-xs font-mono"
                 >

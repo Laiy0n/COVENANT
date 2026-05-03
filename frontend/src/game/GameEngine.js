@@ -9,8 +9,6 @@ export class GameEngine {
     this.container = container;
     this.onStateUpdate = onStateUpdate;
     this.config = config;
-    this.settings = config.settings || { brightness: 1.8, sensMult: 1.0 };
-    this.sensitivity = 0.002 * this.settings.sensMult;
     this.scene = null;
     this.camera = null;
     this.renderer = null;
@@ -21,6 +19,9 @@ export class GameEngine {
     this.isLocked = false;
     this.animationId = null;
     this.sounds = new SoundManager();
+    
+    // FIX 2: Hit effects tracked in main loop instead of individual RAF loops
+    this.hitEffects = [];
     
     // Player state - R6 Siege style
     this.player = {
@@ -46,9 +47,7 @@ export class GameEngine {
       crouchHeight: 1.6,
       targetCrouchHeight: 1.6,
       headBob: 0,
-      stepTimer: 0,
-      sprintStamina: 100,
-      spawnInvuln: 3.0
+      stepTimer: 0
     };
     
     // Game state
@@ -75,7 +74,7 @@ export class GameEngine {
     this.damageIndicators = [];
     
     this.raycaster = new THREE.Raycaster();
-    this.sensitivity = this.settings.sensitivity;
+    this.sensitivity = 0.002;
     
     // Character/operator abilities
     this.operator = config.operator || null;
@@ -88,8 +87,8 @@ export class GameEngine {
   
   init() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0a14);
-    this.scene.fog = new THREE.Fog(0x0a0a14, 40, 100);
+    this.scene.background = new THREE.Color(0x050508);
+    this.scene.fog = new THREE.Fog(0x050508, 25, 70);
     
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.copy(this.player.position);
@@ -100,13 +99,14 @@ export class GameEngine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 2.5 * this.settings.brightness;
+    // FIX 1: Increased exposure from 0.8 to 1.4 for much brighter scene
+    this.renderer.toneMappingExposure = 1.4;
     this.container.appendChild(this.renderer.domElement);
     
     this.setupLighting();
     this.mapObjects = createMap(this.scene);
     this.createHeart();
-    this.enemies = createEnemies(this.scene, 3);
+    this.enemies = createEnemies(this.scene, 5);
     
     // Initialize weapon system
     this.weaponSystem = new WeaponSystem(this.scene, this.camera, this.operator);
@@ -120,36 +120,39 @@ export class GameEngine {
   }
   
   setupLighting() {
-    const brightness = this.settings.brightness;
-    
-    const ambient = new THREE.AmbientLight(0x2a2a4e, 1.6 * brightness);
+    // FIX 1: Significantly brighter ambient light
+    const ambient = new THREE.AmbientLight(0x8899cc, 1.8);
     this.scene.add(ambient);
-    this.ambientLight = ambient;
     
-    const dirLight = new THREE.DirectionalLight(0x4466ff, 1.2 * brightness);
+    // FIX 1: Stronger directional light
+    const dirLight = new THREE.DirectionalLight(0xaabbff, 1.5);
     dirLight.position.set(10, 20, 10);
     dirLight.castShadow = true;
     this.scene.add(dirLight);
-    this.dirLight = dirLight;
+
+    // FIX 1: Add a second fill light from opposite direction
+    const fillLight = new THREE.DirectionalLight(0x334466, 0.8);
+    fillLight.position.set(-10, 10, -10);
+    this.scene.add(fillLight);
     
-    // Emergency red lights
+    // Emergency red lights - increased intensity
     const redPositions = [[10, 3, 0], [-10, 3, 10], [15, 3, -15], [-15, 3, 20]];
     redPositions.forEach(pos => {
-      const light = new THREE.PointLight(0xff2222, 1.5 * brightness, 15);
+      const light = new THREE.PointLight(0xff2222, 3.0, 20);
       light.position.set(...pos);
       this.scene.add(light);
     });
     
-    // Cyan tech lights
+    // Cyan tech lights - increased intensity and range
     const cyanPositions = [[0, 4, -15], [0, 4, 15], [-20, 4, 0], [20, 4, 0]];
     cyanPositions.forEach(pos => {
-      const light = new THREE.PointLight(0x00e5ff, 1.5 * brightness, 18);
+      const light = new THREE.PointLight(0x00e5ff, 3.0, 25);
       light.position.set(...pos);
       this.scene.add(light);
     });
     
     // Heart glow
-    this.heartLight = new THREE.PointLight(0xff4444, 3 * brightness, 25);
+    this.heartLight = new THREE.PointLight(0xff4444, 4, 30);
     this.heartLight.position.set(0, 3, -20);
     this.scene.add(this.heartLight);
   }
@@ -237,8 +240,8 @@ export class GameEngine {
           this.player.isCrouching = !this.player.isCrouching;
           this.player.targetCrouchHeight = this.player.isCrouching ? 1.0 : 1.6;
           break;
-        case 'KeyQ': this.player.isLeaning = 1; break;
-        case 'KeyE': this.player.isLeaning = -1; break;
+        case 'KeyQ': this.player.isLeaning = -1; break;
+        case 'KeyE': this.player.isLeaning = 1; break;
         case 'KeyR': this.reload(); break;
         case 'Digit1': this.weaponSystem?.switchWeapon(0); break;
         case 'Digit2': this.weaponSystem?.switchWeapon(1); break;
@@ -463,27 +466,33 @@ export class GameEngine {
     }, 8000);
   }
   
+  // FIX 2: Hit effects are now added to an array and updated in the main game loop.
+  // Previously each hit created its own requestAnimationFrame loop that was never
+  // cleaned up, causing hundreds of parallel RAF loops and massive FPS loss.
   createHitEffect(position, color) {
     const geo = new THREE.SphereGeometry(0.12, 8, 8);
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.copy(position);
     this.scene.add(mesh);
-    
-    const startTime = this.clock.getElapsedTime();
-    const animate = () => {
-      const elapsed = this.clock.getElapsedTime() - startTime;
-      if (elapsed > 0.3) {
-        this.scene.remove(mesh);
-        geo.dispose();
-        mat.dispose();
-        return;
+    this.hitEffects.push({ mesh, geo, mat, elapsed: 0, duration: 0.3 });
+  }
+
+  // FIX 2: Called once per frame from animate() to update all active hit effects
+  updateHitEffects(delta) {
+    for (let i = this.hitEffects.length - 1; i >= 0; i--) {
+      const fx = this.hitEffects[i];
+      fx.elapsed += delta;
+      if (fx.elapsed >= fx.duration) {
+        this.scene.remove(fx.mesh);
+        fx.geo.dispose();
+        fx.mat.dispose();
+        this.hitEffects.splice(i, 1);
+      } else {
+        fx.mat.opacity = 1 - (fx.elapsed / fx.duration);
+        fx.mesh.scale.setScalar(1 + fx.elapsed * 3);
       }
-      mat.opacity = 1 - (elapsed / 0.3);
-      mesh.scale.setScalar(1 + elapsed * 3);
-      requestAnimationFrame(animate);
-    };
-    animate();
+    }
   }
   
   createMuzzleFlash() {
@@ -498,19 +507,9 @@ export class GameEngine {
   updateMovement(delta) {
     if (!this.player.isAlive) return;
     
-    // Sprint stamina
-    if (this.player.isSprinting) {
-      this.player.sprintStamina -= delta * 25;
-      if (this.player.sprintStamina <= 0) {
-        this.player.isSprinting = false;
-      }
-    } else {
-      this.player.sprintStamina = Math.min(100, this.player.sprintStamina + delta * 15);
-    }
-    
     // R6 Siege style speeds
     let speed = 5.5; // Base walk speed
-    if (this.player.isSprinting && this.player.sprintStamina > 20 && !this.player.isADS) speed = 9;
+    if (this.player.isSprinting && !this.player.isADS) speed = 9;
     if (this.player.isCrouching) speed = 3;
     if (this.player.isADS) speed = 3.5;
     
@@ -579,9 +578,6 @@ export class GameEngine {
   }
   
   updateEnemyAI(delta) {
-    // Spawn invuln
-    this.player.spawnInvuln -= delta;
-    
     for (const enemy of this.enemies) {
       if (!enemy.alive) continue;
       
@@ -599,22 +595,18 @@ export class GameEngine {
       const dist = enemy.mesh.position.distanceTo(this.player.position);
       
       if (dist > 2.5) {
-        const moveSpeed = enemy.speed * delta * 0.8; // 20% slower
+        const moveSpeed = enemy.speed * delta;
         const newPos = enemy.mesh.position.clone().add(dir.clone().multiplyScalar(moveSpeed));
         enemy.mesh.position.copy(newPos);
         enemy.mesh.lookAt(this.player.position);
       } else {
         // Attack
         const currentTime = this.clock.getElapsedTime();
-        if (!enemy.lastAttack || currentTime - enemy.lastAttack > 1.2) { // Slightly slower attack
+        if (!enemy.lastAttack || currentTime - enemy.lastAttack > 1.0) {
           enemy.lastAttack = currentTime;
           
-          if (this.player.spawnInvuln > 0) continue; // Invuln
-          
-          // Distance scaled damage
-          const damageMultiplier = Math.max(0.2, dist / 10);
-          let damage = enemy.damage * damageMultiplier;
-          
+          // Damage calc with armor
+          let damage = enemy.damage;
           if (this.player.armor > 0) {
             const armorAbsorb = Math.min(damage * 0.6, this.player.armor);
             this.player.armor -= armorAbsorb;
@@ -647,10 +639,8 @@ export class GameEngine {
     
     if (aliveCount === 0 && !this.gameState.gameOver) {
       this.gameState.wave++;
-      const newCount = Math.min(12, 3 + this.gameState.wave * 2);
-      const newEnemies = createEnemies(this.scene, newCount);
+      const newEnemies = createEnemies(this.scene, Math.min(12, 3 + this.gameState.wave * 2));
       this.enemies.push(...newEnemies);
-      if (this.enemies.length > 50) this.enemies.splice(0, this.enemies.length - 50);
     }
   }
   
@@ -673,9 +663,6 @@ export class GameEngine {
       ind.intensity = ind.time / 2.0;
       return ind.time > 0;
     });
-    if (this.damageIndicators.length > 20) {
-      this.damageIndicators.splice(0, this.damageIndicators.length - 20);
-    }
   }
   
   updateHeart(delta) {
@@ -685,7 +672,7 @@ export class GameEngine {
     
     const healthRatio = this.gameState.heartHealth / this.gameState.heartMaxHealth;
     if (this.heartLight) {
-      this.heartLight.intensity = 3 + (1 - healthRatio) * 5;
+      this.heartLight.intensity = 4 + (1 - healthRatio) * 5;
     }
     this.heartMesh.material.emissiveIntensity = 0.5 + (1 - healthRatio) * 1.5;
   }
@@ -712,6 +699,11 @@ export class GameEngine {
     if (this.gameState.score[winner] >= Math.ceil(this.gameState.maxRounds / 2)) {
       this.gameState.gameOver = true;
       this.gameState.winner = winner;
+      // FIX 3: Release pointer lock when game is over so the player can click
+      // the "Redeploy" / "Main Menu" buttons without needing to press ESC first
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
     } else {
       // Next round after delay
       setTimeout(() => this.nextRound(), 3000);
@@ -782,27 +774,11 @@ export class GameEngine {
       abilityCharge: this.abilityCharge,
       abilityActive: this.abilityActive,
       operatorId: this.operator?.id,
-      damageIndicators: this.damageIndicators,
-      sprintStamina: this.player.sprintStamina,
-      spawnInvuln: Math.max(0, this.player.spawnInvuln)
+      damageIndicators: this.damageIndicators
     });
   }
   
   animate() {
-    const time = this.clock.getElapsedTime();
-    
-    // Throttled brightness update (every 0.1s)
-    if (!this.lastBrightUpdate || time - this.lastBrightUpdate > 0.1) {
-      this.lastBrightUpdate = time;
-      if (this.settings) {
-        const brightness = this.settings.brightness;
-        if (this.ambientLight) this.ambientLight.intensity = 1.0 * brightness;
-        if (this.dirLight) this.dirLight.intensity = 0.8 * brightness;
-        if (this.heartLight) this.heartLight.intensity = 4 * brightness;
-        this.renderer.toneMappingExposure = 1.8 * brightness;
-      }
-    }
-    
     this.animationId = requestAnimationFrame(this.animate.bind(this));
     const delta = Math.min(this.clock.getDelta(), 0.1);
     
@@ -824,12 +800,10 @@ export class GameEngine {
       }
     }
     
-    // Throttled HUD
-    if (!this.lastHUDTime || time - this.lastHUDTime > 0.05) {
-      this.lastHUDTime = time;
-      this.updateHUD();
-    }
+    // FIX 2: Update hit effects every frame in the main loop (not separate RAF loops)
+    this.updateHitEffects(delta);
     
+    this.updateHUD();
     this.renderer.render(this.scene, this.camera);
   }
   
@@ -854,6 +828,14 @@ export class GameEngine {
     if (this._onMouseUp) document.removeEventListener('mouseup', this._onMouseUp);
     if (this._onContextMenu) this.container.removeEventListener('contextmenu', this._onContextMenu);
     if (this._onWheel) document.removeEventListener('wheel', this._onWheel);
+
+    // Clean up any remaining hit effects
+    for (const fx of this.hitEffects) {
+      this.scene.remove(fx.mesh);
+      fx.geo.dispose();
+      fx.mat.dispose();
+    }
+    this.hitEffects = [];
 
     if (this.renderer) {
       this.renderer.dispose();
@@ -880,6 +862,14 @@ export class GameEngine {
     this.gameState.score = { humans: 0, aliens: 0 };
     this.abilityCharge = 100;
     this.abilityActive = false;
+
+    // Clean up any remaining hit effects on restart
+    for (const fx of this.hitEffects) {
+      this.scene.remove(fx.mesh);
+      fx.geo.dispose();
+      fx.mat.dispose();
+    }
+    this.hitEffects = [];
     
     for (const enemy of this.enemies) this.scene.remove(enemy.mesh);
     this.enemies = createEnemies(this.scene, 5);

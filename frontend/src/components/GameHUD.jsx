@@ -1,9 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Heart, Shield, Crosshair, Zap, Clock, Target } from 'lucide-react';
 
 export default function GameHUD({ gameState, isLocked }) {
   const [showDamage, setShowDamage] = useState(false);
   const [prevHealth, setPrevHealth] = useState(100);
+  const [fps, setFps] = useState(0);
+  const fpsRef = useRef({ frames: 0, last: performance.now() });
+
+  // FPS counter
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      fpsRef.current.frames++;
+      const now = performance.now();
+      if (now - fpsRef.current.last >= 1000) {
+        setFps(fpsRef.current.frames);
+        fpsRef.current.frames = 0;
+        fpsRef.current.last = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   useEffect(() => {
     if (gameState.health < prevHealth && prevHealth > 0) {
@@ -12,6 +31,11 @@ export default function GameHUD({ gameState, isLocked }) {
     }
     setPrevHealth(gameState.health);
   }, [gameState.health]);
+
+  // Read brightness/showFPS from settings
+  const showFPS = (() => {
+    try { return JSON.parse(localStorage.getItem('covenantSettings') || '{}').showFPS; } catch { return false; }
+  })();
 
   if (!isLocked) return null;
 
@@ -61,6 +85,13 @@ export default function GameHUD({ gameState, isLocked }) {
           <Crosshair size={20} className="text-white/60" strokeWidth={1} />
         )}
       </div>
+      
+      {/* FPS Counter */}
+      {showFPS && (
+        <div className="absolute top-4 left-4 pointer-events-none">
+          <span className="text-xs font-mono text-[#39FF14] bg-black/40 px-2 py-1">{fps} FPS</span>
+        </div>
+      )}
       
       {/* Top Center - Round info + Timer */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 text-center pointer-events-none">

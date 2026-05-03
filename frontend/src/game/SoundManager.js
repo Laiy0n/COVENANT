@@ -12,23 +12,32 @@ export class SoundManager {
     if (this.initialized) return;
     try {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Resume immediately — browsers require this after user gesture
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
       this.initialized = true;
     } catch (e) {
-      console.warn('Web Audio not available');
+      console.warn('Web Audio not available:', e);
       this.enabled = false;
     }
   }
   
   play(soundName, variant) {
     if (!this.enabled) return;
+    // Always try to init on first play (called after user gesture)
     if (!this.initialized) this.init();
     if (!this.ctx) return;
     
     // Resume context if suspended (browser autoplay policy)
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().then(() => this._playSound(soundName, variant)).catch(() => {});
+      return;
     }
-    
+    this._playSound(soundName, variant);
+  }
+
+  _playSound(soundName, variant) {
     try {
       switch (soundName) {
         case 'shoot':
