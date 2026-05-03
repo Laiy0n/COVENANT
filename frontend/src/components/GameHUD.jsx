@@ -6,7 +6,7 @@ import { Heart, Shield, Crosshair, Zap, Clock, Target, Settings } from 'lucide-r
 export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
   if (!isLocked) return null;
 
-  // Read showFPS setting from localStorage (same key as SettingsPanel)
+  // Read showFPS from settings saved by SettingsPanel
   let showFPS = false;
   try { showFPS = JSON.parse(localStorage.getItem('covenantSettings') || '{}').showFPS || false; } catch {}
 
@@ -31,14 +31,10 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
       {/* Damage vignette */}
       {gameState.damaged && <div className="damage-vignette" />}
 
-      {/* FPS counter — only shown when enabled in settings */}
+      {/* FPS Counter */}
       {showFPS && (
-        <div className="absolute top-4 left-4 pointer-events-none z-50">
-          <span className={`text-xs font-mono px-1.5 py-0.5 bg-black/50 border ${
-            (gameState.fps || 0) < 30 ? 'text-[#FF2A2A] border-[#FF2A2A]/30' :
-            (gameState.fps || 0) < 50 ? 'text-[#FFB800] border-[#FFB800]/30' :
-                                        'text-[#39FF14] border-[#39FF14]/30'
-          }`}>
+        <div className="absolute top-4 left-4 pointer-events-none z-10">
+          <span className="text-xs font-mono text-[#39FF14] bg-black/60 px-2 py-1 border border-[#39FF14]/20">
             {gameState.fps || 0} FPS
           </span>
         </div>
@@ -86,7 +82,7 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
           </div>
           <div className="flex items-center gap-2">
             <Target size={10} className="text-[#FF2A2A]" />
-            <span className="text-xs font-mono text-[#FF2A2A] uppercase tracking-wider">DESTROY THE HEART</span>
+            <span className="text-xs font-mono text-[#FF2A2A] uppercase tracking-wider">KILL ALL ALIENS or PLANT DISRUPTOR</span>
           </div>
           <div className="mt-1 w-48 mx-auto h-1 bg-white/10 overflow-hidden">
             <div className="h-full transition-all duration-300" style={{ width:`${heartPct}%`, background:'linear-gradient(90deg,#FF2A2A,#ff6666)' }} />
@@ -170,7 +166,29 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
         </div>
       </div>
 
-      {/* ── Bottom Center — Stance ── */}
+      {/* ── Bottom Center — Stance + Plant ── */}
+      <div className="absolute bottom-16 left-1/2 -translate-x-1/2 pointer-events-none flex flex-col items-center gap-2">
+        {/* Plant zone prompt */}
+        {gameState.nearPlantZone && !gameState.devicePlanted && (
+          <div className="bg-black/80 border border-[#00E5FF] px-4 py-2 text-center">
+            <p className="text-xs font-mono text-[#00E5FF] uppercase tracking-widest">
+              {gameState.isPlanting ? 'PLANTING DEVICE...' : '[G] PLANT NEURAL DISRUPTOR'}
+            </p>
+            {gameState.isPlanting && (
+              <div className="mt-1 h-1.5 bg-white/10 w-48 mx-auto">
+                <div className="h-full bg-[#00E5FF] transition-all" style={{ width: `${gameState.plantProgress||0}%` }} />
+              </div>
+            )}
+          </div>
+        )}
+        {/* Device planted — detonation countdown */}
+        {gameState.devicePlanted && (
+          <div className="bg-black/80 border border-[#FF2A2A] px-4 py-2 text-center animate-pulse">
+            <p className="text-xs font-mono text-[#FF2A2A] uppercase tracking-widest">⚠ NEURAL DISRUPTOR ACTIVE</p>
+            <p className="text-xl font-['Rajdhani'] font-bold text-[#FF2A2A]">{gameState.deviceTimer}s</p>
+          </div>
+        )}
+      </div>
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 pointer-events-none flex gap-3">
         {gameState.isCrouching && <span className="text-xs font-mono text-[#00E5FF] bg-black/40 px-2 py-1 border border-[#00E5FF]/30">CROUCHED</span>}
         {gameState.isADS       && <span className="text-xs font-mono text-[#FFB800] bg-black/40 px-2 py-1 border border-[#FFB800]/30">ADS</span>}

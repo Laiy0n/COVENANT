@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { createMap } from './Map';
-import { createEnemies } from './Enemies';
+import { createMap, HEART_POSITION, PLANT_POSITION } from './Map';
+import { createEnemies, createProjectile, updateProjectiles } from './Enemies';
 import { WeaponSystem } from './Weapons';
 import { SoundManager } from './SoundManager';
 
@@ -25,7 +25,7 @@ export class GameEngine {
     
     // Player state - R6 Siege style
     this.player = {
-      position: new THREE.Vector3(0, 1.6, 0),
+      position: new THREE.Vector3(0, 1.6, 32),
       velocity: new THREE.Vector3(0, 0, 0),
       rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
       health: 100,
@@ -72,26 +72,26 @@ export class GameEngine {
     
     // Damage indicators
     this.damageIndicators = [];
+    // Plant mechanic
+    this.plantProgress = 0;    // 0-100
+    this.isPlanting    = false;
+    this.plantKey      = false; // G key held
+    this.devicePlanted = false;
+    this.deviceTimer   = 0;    // countdown after planted
+    this.plantMesh     = null;
+    // All projectiles from spitters
+    this.allProjectiles = [];
     
     this.raycaster = new THREE.Raycaster();
-    // Read sensitivity from SettingsPanel localStorage
-    const savedSens = parseFloat(localStorage.getItem('covenantSettings') && JSON.parse(localStorage.getItem('covenantSettings')).sensitivity || 20);
-    this.sensitivity = (savedSens / 100) * 0.004; // 5→0.0002 … 100→0.004
-
-    // ── Pre-allocated scratch vectors (NEVER new THREE.Vector3 inside loops) ──
-    this._fwd    = new THREE.Vector3();  // movement forward
-    this._right  = new THREE.Vector3();  // movement right
-    this._dir    = new THREE.Vector3();  // movement direction
-    this._newPos = new THREE.Vector3();  // candidate position
-    this._lean   = new THREE.Vector3();  // lean offset
-    this._axis   = new THREE.Vector3(0, 1, 0); // constant Y axis
-    this._eDir   = new THREE.Vector3();  // enemy→player direction
-    this._eMove  = new THREE.Vector3();  // enemy movement delta
-    this._pBox   = new THREE.Box3();     // player collision box (reused)
+    this.sensitivity = 0.002;
     
     // HUD throttle: only push React state updates ~15x/s instead of 60x/s
     this._hudTimer = 0;
     this._hudInterval = 1 / 15;
+    // FPS counter — tracked in engine, passed to HUD
+    this._fpsFrames = 0;
+    this._fpsTimer = 0;
+    this._fps = 0;
     // Cache wall bounding boxes to avoid recreating Box3 every frame
     this._wallBoxCache = null;
     
@@ -112,19 +112,13 @@ export class GameEngine {
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.copy(this.player.position);
     
-    // Load saved settings
-    let _cfg = {};
-    try { _cfg = JSON.parse(localStorage.getItem('covenantSettings') || '{}'); } catch {}
-    const _brightness  = _cfg.brightness  ?? 60;
-    const _shadows     = _cfg.shadows     ?? false;
-    const _antialias   = _cfg.antialiasing ?? true;
-
-    this.renderer = new THREE.WebGLRenderer({ antialias: _antialias, alpha: false });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    this.renderer.shadowMap.enabled = _shadows;
+    this.renderer.shadowMap.enabled = false; // shadows off = major FPS gain
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.6 + (_brightness / 100) * 1.6; // 10→0.76 … 100→2.2
+    // FIX 1: Increased exposure from 0.8 to 1.4 for much brighter scene
+    this.renderer.toneMappingExposure = 1.4;
     this.container.appendChild(this.renderer.domElement);
     
     this.setupLighting();
@@ -132,9 +126,6 @@ export class GameEngine {
     this.createHeart();
     this.enemies = createEnemies(this.scene, 5);
     
-    // Camera must be in the scene so weapon meshes (children of camera) render
-    this.scene.add(this.camera);
-
     // Initialize weapon system
     this.weaponSystem = new WeaponSystem(this.scene, this.camera, this.operator);
     
@@ -149,7 +140,7 @@ export class GameEngine {
       .filter(o => o.userData?.isWall)
       .map(o => ({ box: new THREE.Box3().setFromObject(o) }));
     
-    this._onResize = this.onResize.bind(this); window.addEventListener('resize', this._onResize);
+    window.addEventListener('resize', this.onResize.bind(this));
     
     // Start round timer
     this.startRound();
@@ -157,11 +148,28 @@ export class GameEngine {
   }
   
   setupLighting() {
-    // Map.js now owns all scene-wide lighting (ambient + directional + accent points).
-    // Engine only adds the heart-reactive glow light here to keep it in sync with
-    // gameState.heartHealth in updateHeart().
-    this.heartLight = new THREE.PointLight(0xff4444, 5, 35);
-    this.heartLight.position.set(0, 3, -20);
+    // Strong ambient so no shadows needed
+    const ambient = new THREE.AmbientLight(0x8899cc, 2.5);
+    this.scene.add(ambient);
+
+    // Two directional lights (cheap, no shadows)
+    const dirLight = new THREE.DirectionalLight(0xaabbff, 1.8);
+    dirLight.position.set(10, 20, 10);
+    dirLight.castShadow = false;
+    this.scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0x334466, 1.0);
+    fillLight.position.set(-10, 10, -10);
+    this.scene.add(fillLight);
+
+    // Only 2 point lights instead of 8 — huge FPS gain
+    const redLight = new THREE.PointLight(0xff2222, 3.0, 40);
+    redLight.position.set(0, 4, 0);
+    this.scene.add(redLight);
+
+    // Heart glow (single point light)
+    this.heartLight = new THREE.PointLight(0xff4444, 4, 35);
+    this.heartLight.position.set(HEART_POSITION.x, HEART_POSITION.y, HEART_POSITION.z);
     this.scene.add(this.heartLight);
   }
   
@@ -194,18 +202,24 @@ export class GameEngine {
     heartGroup.add(heartMesh);
     this.heartMesh = heartMesh;
     
-    // Tendrils — reduced to 6, simpler tube (8 segments instead of 20, 6-sided instead of 8)
-    // Shared material for all tendrils = 1 draw call vs 10
-    const tubeMat = new THREE.MeshLambertMaterial({ color: 0x6b1515, emissive: 0x220000 });
-    for (let i = 0; i < 6; i++) {
-      const angle = (Math.PI * 2 / 6) * i;
+    // Tendrils
+    for (let i = 0; i < 10; i++) {
+      const angle = (Math.PI * 2 / 10) * i;
       const curve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(0, 3, -20),
-        new THREE.Vector3(Math.cos(angle) * 4, 2 + Math.random() * 2, -20 + Math.sin(angle) * 4),
-        new THREE.Vector3(Math.cos(angle) * 10, 0.5, -20 + Math.sin(angle) * 10),
+        new THREE.Vector3(HEART_POSITION.x, HEART_POSITION.y, HEART_POSITION.z),
+        new THREE.Vector3(Math.cos(angle) * 5, 2 + Math.random() * 3, -20 + Math.sin(angle) * 5),
+        new THREE.Vector3(Math.cos(angle) * 12, 0.5 + Math.random() * 2, -20 + Math.sin(angle) * 12),
       ]);
-      const tubeGeo = new THREE.TubeGeometry(curve, 8, 0.25, 6, false);
-      heartGroup.add(new THREE.Mesh(tubeGeo, tubeMat));
+      
+      const tubeGeo = new THREE.TubeGeometry(curve, 20, 0.2 + Math.random() * 0.4, 8, false);
+      const tubeMat = new THREE.MeshStandardMaterial({
+        color: 0x6b1515,
+        roughness: 0.8,
+        emissive: 0x220000,
+        emissiveIntensity: 0.3
+      });
+      const tube = new THREE.Mesh(tubeGeo, tubeMat);
+      heartGroup.add(tube);
     }
     
     this.scene.add(heartGroup);
@@ -252,6 +266,7 @@ export class GameEngine {
         case 'Digit2': this.weaponSystem?.switchWeapon(1); break;
         case 'Digit3': this.weaponSystem?.switchWeapon(2); break;
         case 'KeyF': this.useAbility(); break;
+        case 'KeyG': this.plantKey = true; break;
         default: break;
       }
     };
@@ -263,6 +278,7 @@ export class GameEngine {
         case 'KeyD': this.player.moveRight = false; break;
         case 'ShiftLeft': this.player.isSprinting = false; break;
         case 'KeyQ': if (this.player.isLeaning === -1) this.player.isLeaning = 0; break;
+        case 'KeyG': this.plantKey = false; this.isPlanting = false; break;
         case 'KeyE': if (this.player.isLeaning === 1) this.player.isLeaning = 0; break;
         default: break;
       }
@@ -511,145 +527,156 @@ export class GameEngine {
   
   updateMovement(delta) {
     if (!this.player.isAlive) return;
-
-    // R6 Siege speed tiers
-    let speed = 5.5;
+    
+    // R6 Siege style speeds
+    let speed = 5.5; // Base walk speed
     if (this.player.isSprinting && !this.player.isADS) speed = 9;
     if (this.player.isCrouching) speed = 3;
-    if (this.player.isADS)       speed = 3.5;
+    if (this.player.isADS) speed = 3.5;
+    
+    // Vanguard speed boost
     if (this.operator?.id === 'vanguard' && this.abilityActive) speed *= 1.5;
-
-    // ── Zero-allocation movement using pre-allocated scratch vectors ──
-    this._fwd.set(0, 0, -1).applyAxisAngle(this._axis, this.player.rotation.y);
-    this._right.set(1, 0, 0).applyAxisAngle(this._axis, this.player.rotation.y);
-    this._dir.set(0, 0, 0);
-
-    if (this.player.moveForward)  this._dir.add(this._fwd);
-    if (this.player.moveBackward) this._dir.sub(this._fwd);
-    if (this.player.moveRight)    this._dir.add(this._right);
-    if (this.player.moveLeft)     this._dir.sub(this._right);
-
-    const prevStep = this.player.stepTimer;
-    if (this._dir.lengthSq() > 0) {
-      this._dir.normalize();
-      this._newPos.copy(this.player.position).addScaledVector(this._dir, speed * delta);
-
-      if (!this.checkCollision(this._newPos)) {
-        this.player.position.copy(this._newPos);
+    
+    const direction = new THREE.Vector3();
+    const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation.y);
+    const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation.y);
+    
+    if (this.player.moveForward) direction.add(forward);
+    if (this.player.moveBackward) direction.sub(forward);
+    if (this.player.moveRight) direction.add(right);
+    if (this.player.moveLeft) direction.sub(right);
+    
+    if (direction.length() > 0) {
+      direction.normalize();
+      const newPos = this.player.position.clone().add(direction.multiplyScalar(speed * delta));
+      
+      if (!this.checkCollision(newPos)) {
+        this.player.position.copy(newPos);
       }
-
+      
+      // Head bob
       this.player.stepTimer += delta * speed * 0.5;
       this.player.headBob = Math.sin(this.player.stepTimer * 2) * (this.player.isSprinting ? 0.06 : 0.03);
-
-      if (Math.floor(this.player.stepTimer) !== Math.floor(prevStep)) {
+      
+      // Footstep sounds
+      if (Math.floor(this.player.stepTimer) !== Math.floor(this.player.stepTimer - delta * speed * 0.5)) {
         this.sounds.play('footstep');
       }
     } else {
       this.player.headBob *= 0.9;
     }
-
+    
     // Smooth crouch
     this.player.crouchHeight += (this.player.targetCrouchHeight - this.player.crouchHeight) * delta * 10;
     this.player.position.y = this.player.crouchHeight + this.player.headBob;
-
-    // ── R6-style lean: pronounced angle + lateral offset + soft-cap rotation + speed penalty ──
-    const isLeaning = this.player.isLeaning !== 0;
-    const targetLean = this.player.isLeaning * 0.22;
-    this.player.leanAngle += (targetLean - this.player.leanAngle) * delta * 10;
-    if (isLeaning) speed = Math.min(speed, 3.5);
-    if (isLeaning) {
-      if (!this.player.leanBaseY) this.player.leanBaseY = this.player.rotation.y;
-      const maxLeanRot = Math.PI / 3;
-      const rotDelta = this.player.rotation.y - this.player.leanBaseY;
-      if (Math.abs(rotDelta) > maxLeanRot)
-        this.player.rotation.y = this.player.leanBaseY + Math.sign(rotDelta) * maxLeanRot;
-    } else {
-      this.player.leanBaseY = null;
-    }
-
-    // Update camera (zero allocations)
+    
+    // Smooth lean
+    const targetLean = this.player.isLeaning * 0.15;
+    this.player.leanAngle += (targetLean - this.player.leanAngle) * delta * 12;
+    
+    // Update camera
     this.camera.position.copy(this.player.position);
-    this._lean.set(this.player.leanAngle * 2.5, this.player.leanAngle * -0.08, 0)
-      .applyAxisAngle(this._axis, this.player.rotation.y);
-    this.camera.position.add(this._lean);
+    // Apply lean offset
+    const leanOffset = new THREE.Vector3(this.player.leanAngle * 2, 0, 0)
+      .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation.y);
+    this.camera.position.add(leanOffset);
+    
     this.camera.rotation.set(this.player.rotation.x, this.player.rotation.y, this.player.leanAngle, 'YXZ');
   }
   
   checkCollision(position) {
-    // Reuse pre-allocated Box3 — zero allocations per call
-    const r = 0.4;
-    this._pBox.min.set(position.x - r, 0,         position.z - r);
-    this._pBox.max.set(position.x + r, 2, position.z + r);
+    const playerRadius = 0.4;
+    const playerBox = new THREE.Box3(
+      new THREE.Vector3(position.x - playerRadius, 0, position.z - playerRadius),
+      new THREE.Vector3(position.x + playerRadius, 2, position.z + playerRadius)
+    );
     if (!this._wallBoxCache) return false;
     for (const { box } of this._wallBoxCache) {
-      if (box.intersectsBox(this._pBox)) return true;
+      if (box.intersectsBox(playerBox)) return true;
     }
     return false;
   }
   
   updateEnemyAI(delta) {
-    const now = this.clock.getElapsedTime();
-    const isPhantom = this.operator?.id === 'phantom' && this.abilityActive;
-    let aliveCount = 0;
+    const currentTime = this.clock.getElapsedTime();
 
     for (const enemy of this.enemies) {
       if (!enemy.alive) continue;
-      aliveCount++;
 
       if (enemy.stunned) {
         enemy.stunTime -= delta;
         if (enemy.stunTime <= 0) enemy.stunned = false;
         continue;
       }
-      if (isPhantom) continue;
 
-      // ── Zero-allocation direction + distance ──
-      this._eDir.subVectors(this.player.position, enemy.mesh.position);
-      const dist = this._eDir.length();
-      this._eDir.divideScalar(dist); // manual normalize avoids sqrt twice
+      if (this.operator?.id === 'phantom' && this.abilityActive) continue;
 
-      if (dist > 2.5) {
-        // ── Zero-allocation move: reuse _eMove ──
-        this._eMove.copy(this._eDir).multiplyScalar(enemy.speed * delta);
-        enemy.mesh.position.add(this._eMove);
+      const dist = enemy.mesh.position.distanceTo(this.player.position);
+      const dir  = new THREE.Vector3().subVectors(this.player.position, enemy.mesh.position).normalize();
+
+      if (enemy.attackType === 'projectile') {
+        // Spitter: keep distance, shoot blood balls
+        if (dist > enemy.attackRange * 0.6) {
+          const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta * 0.5);
+          enemy.mesh.position.copy(newPos);
+        }
         enemy.mesh.lookAt(this.player.position);
+
+        if (currentTime - enemy.lastAttack > 2.2) {
+          enemy.lastAttack = currentTime;
+          const origin = enemy.mesh.position.clone().add(new THREE.Vector3(0, 0.3, 0));
+          const proj = createProjectile(this.scene, origin, dir);
+          enemy.projectiles.push(proj);
+          this.allProjectiles.push(proj);
+        }
       } else {
-        if (now - (enemy.lastAttack || 0) > 1.0) {
-          enemy.lastAttack = now;
+        // Melee: charge at player
+        if (dist > enemy.attackRange) {
+          const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta);
+          enemy.mesh.position.copy(newPos);
+          enemy.mesh.lookAt(this.player.position);
+        } else if (currentTime - enemy.lastAttack > 1.0) {
+          enemy.lastAttack = currentTime;
           let damage = enemy.damage;
           if (this.player.armor > 0) {
-            const absorb = Math.min(damage * 0.6, this.player.armor);
-            this.player.armor -= absorb;
-            damage -= absorb;
+            const abs = Math.min(damage * 0.6, this.player.armor);
+            this.player.armor -= abs; damage -= abs;
           }
           this.player.health -= damage;
           this.addDamageIndicator(enemy.mesh.position);
           this.sounds.play('playerHit');
           if (this.onStateUpdate) this.onStateUpdate({ damaged: true });
           if (this.player.health <= 0) {
-            this.player.health = 0;
-            this.player.isAlive = false;
-            this.player.deaths++;
-            this.sounds.play('death');
-            this.winRound('aliens');
+            this.player.health = 0; this.player.isAlive = false; this.player.deaths++;
+            this.sounds.play('death'); this.winRound('aliens');
           }
         }
       }
 
-      // Animate bob (cheap — no allocation)
-      enemy.mesh.position.y = (enemy.type === 'crawler' ? 0.8 : 1.5) + Math.sin(now * 3 + enemy.id) * 0.15;
+      enemy.mesh.position.y = (enemy.type === 'crawler' || enemy.type === 'lurker' ? 0.8 : 1.5)
+        + Math.sin(currentTime * 3 + enemy.id) * 0.12;
     }
 
+    // Update all projectiles and apply damage
+    const projDmg = updateProjectiles(this.scene, this.allProjectiles, this.player.position, delta);
+    if (projDmg > 0 && this.player.isAlive) {
+      this.player.health = Math.max(0, this.player.health - projDmg);
+      this.addDamageIndicator(this.player.position.clone().add(new THREE.Vector3(0,0,-5)));
+      this.sounds.play('playerHit');
+      if (this.onStateUpdate) this.onStateUpdate({ damaged: true });
+      if (this.player.health <= 0) {
+        this.player.isAlive = false; this.player.deaths++;
+        this.winRound('aliens');
+      }
+    }
+    this.allProjectiles = this.allProjectiles.filter(p => p.alive);
+
+    const aliveCount = this.enemies.filter(e => e.alive).length;
     this.gameState.enemiesAlive = aliveCount;
 
-    if (aliveCount === 0 && !this.gameState.gameOver) {
-      this.gameState.wave++;
-      this.enemies = this.enemies.filter(e => {
-        if (!e.alive) { this.scene.remove(e.mesh); return false; }
-        return true;
-      });
-      const newEnemies = createEnemies(this.scene, Math.min(12, 3 + this.gameState.wave * 2));
-      this.enemies.push(...newEnemies);
+    // R6-STYLE: all aliens dead → humans win round (NO new wave spawning)
+    if (aliveCount === 0 && !this.gameState.gameOver && this.gameState.roundActive) {
+      this.winRound('humans');
     }
   }
   
@@ -733,8 +760,15 @@ export class GameEngine {
     for (const enemy of this.enemies) {
       this.scene.remove(enemy.mesh);
     }
-    this.enemies = createEnemies(this.scene, 5 + this.gameState.round);
+    this.enemies = createEnemies(this.scene, 5);
     this.gameState.wave = 1;
+    this.plantProgress = 0;
+    this.isPlanting = false;
+    this.devicePlanted = false;
+    this.deviceTimer = 0;
+    if (this.plantMesh) { this.scene.remove(this.plantMesh); this.plantMesh = null; }
+    this.allProjectiles = [];
+    this.player.position.set(0, 1.6, 32);
     
     // Reload weapons
     if (this.weaponSystem) this.weaponSystem.reloadAll();
@@ -750,6 +784,51 @@ export class GameEngine {
     }
   }
   
+
+  updatePlant(delta) {
+    if (!this.player.isAlive || this.gameState.gameOver || this.devicePlanted) return;
+
+    // Check if near plant point
+    const distToPlant = this.player.position.distanceTo(
+      new THREE.Vector3(PLANT_POSITION.x, this.player.position.y, PLANT_POSITION.z)
+    );
+    const nearPlant = distToPlant < 3.0;
+
+    if (this.plantKey && nearPlant) {
+      this.isPlanting = true;
+      this.plantProgress += (delta / 4.0) * 100; // 4 seconds to plant
+      if (this.plantProgress >= 100) {
+        this.plantProgress = 100;
+        this.devicePlanted = true;
+        this.isPlanting = false;
+        this.deviceTimer = 35; // 35 seconds to detonate
+        this._spawnPlantMesh();
+        this.sounds.play('plant');
+      }
+    } else {
+      this.isPlanting = false;
+      if (this.plantProgress > 0 && !this.plantKey) this.plantProgress = Math.max(0, this.plantProgress - delta * 30);
+    }
+
+    // Countdown device
+    if (this.devicePlanted) {
+      this.deviceTimer -= delta;
+      if (this.deviceTimer <= 0) {
+        this.gameState.heartHealth = 0;
+        this.winRound('humans');
+      }
+    }
+  }
+
+  _spawnPlantMesh() {
+    if (this.plantMesh) return;
+    const geo  = new THREE.BoxGeometry(0.4, 0.4, 0.4);
+    const mat  = new THREE.MeshStandardMaterial({ color: 0x00e5ff, emissive: 0x00e5ff, emissiveIntensity: 1.0 });
+    this.plantMesh = new THREE.Mesh(geo, mat);
+    this.plantMesh.position.set(PLANT_POSITION.x, 0.2, PLANT_POSITION.z);
+    this.scene.add(this.plantMesh);
+  }
+
   updateHUD() {
     if (!this.onStateUpdate) return;
     const weapon = this.weaponSystem?.getCurrentWeapon();
@@ -784,43 +863,18 @@ export class GameEngine {
       abilityActive: this.abilityActive,
       operatorId: this.operator?.id,
       damageIndicators: this.damageIndicators,
-      fps: this._fps || 0
+      fps: this._fps,
+      plantProgress: this.plantProgress,
+      isPlanting: this.isPlanting,
+      devicePlanted: this.devicePlanted,
+      deviceTimer: Math.ceil(this.deviceTimer),
+      nearPlantZone: this.player.position.distanceTo(new THREE.Vector3(PLANT_POSITION.x, this.player.position.y, PLANT_POSITION.z)) < 3.0
     });
   }
   
-  updateSettings(settings) {
-    // Called by SettingsPanel in real-time via engineRef.current.updateSettings(settings)
-    if (settings.sensitivity !== undefined) {
-      this.sensitivity = (settings.sensitivity / 100) * 0.004;
-    }
-    if (settings.brightness !== undefined) {
-      this.renderer.toneMappingExposure = 0.6 + (settings.brightness / 100) * 1.6;
-    }
-    if (settings.fov !== undefined) {
-      this.camera.fov = settings.fov;
-      this.camera.updateProjectionMatrix();
-    }
-    if (settings.volume !== undefined && this.sounds) {
-      this.sounds.setVolume(settings.volume / 100);
-    }
-    if (settings.shadows !== undefined) {
-      this.renderer.shadowMap.enabled = settings.shadows;
-      this.renderer.shadowMap.needsUpdate = true;
-    }
-  }
-
   animate() {
     this.animationId = requestAnimationFrame(this.animate.bind(this));
     const delta = Math.min(this.clock.getDelta(), 0.1);
-
-    // FPS counter — updates once per second
-    this._fpsFrames = (this._fpsFrames || 0) + 1;
-    this._fpsTimer  = (this._fpsTimer  || 0) + delta;
-    if (this._fpsTimer >= 1.0) {
-      this._fps = Math.round(this._fpsFrames / this._fpsTimer);
-      this._fpsFrames = 0;
-      this._fpsTimer  = 0;
-    }
     
     if (this.isLocked && !this.gameState.gameOver) {
       this.updateMovement(delta);
@@ -828,6 +882,7 @@ export class GameEngine {
       this.updateHeart(delta);
       this.updateDamageIndicators(delta);
       this.updateAbility(delta);
+      this.updatePlant(delta);
       this.weaponSystem?.update(delta);
       
       // Hacker ability - outline enemies
@@ -843,6 +898,15 @@ export class GameEngine {
     // FIX 2: Update hit effects every frame in the main loop (not separate RAF loops)
     this.updateHitEffects(delta);
     
+    // Count frames for FPS display
+    this._fpsFrames++;
+    this._fpsTimer += delta;
+    if (this._fpsTimer >= 1.0) {
+      this._fps = this._fpsFrames;
+      this._fpsFrames = 0;
+      this._fpsTimer = 0;
+    }
+
     // FIX: Throttle HUD updates to ~15/s to avoid 60 React re-renders/second
     this._hudTimer += delta;
     if (this._hudTimer >= this._hudInterval) {
@@ -861,7 +925,7 @@ export class GameEngine {
   dispose() {
     if (this.animationId) cancelAnimationFrame(this.animationId);
     if (this.roundInterval) clearInterval(this.roundInterval);
-    if (this._onResize) window.removeEventListener('resize', this._onResize);
+    window.removeEventListener('resize', this.onResize.bind(this));
     
     // Remove all stored event listeners
     if (this._onClick) this.container.removeEventListener('click', this._onClick);
@@ -921,6 +985,13 @@ export class GameEngine {
     
     for (const enemy of this.enemies) this.scene.remove(enemy.mesh);
     this.enemies = createEnemies(this.scene, 5);
+    this.plantProgress = 0;
+    this.isPlanting = false;
+    this.devicePlanted = false;
+    this.deviceTimer = 0;
+    if (this.plantMesh) { this.scene.remove(this.plantMesh); this.plantMesh = null; }
+    this.allProjectiles = [];
+    this.player.position.set(0, 1.6, 32);
     if (this.weaponSystem) this.weaponSystem.reloadAll();
     this.startRound();
     this.updateHUD();

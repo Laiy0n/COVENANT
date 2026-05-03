@@ -3,48 +3,26 @@ import { GameEngine } from '../game/GameEngine';
 import { getOperator } from '../game/Operators';
 import GameHUD from './GameHUD';
 import GameOver from './GameOver';
-import { Settings, Volume2, Monitor, Gamepad2, X, RotateCcw, Home } from 'lucide-react';
+import { Volume2, Monitor, Gamepad2, X, RotateCcw, Home } from 'lucide-react';
 
-// ── Shared settings helpers (same key/defaults as SettingsPanel) ─────────────
-const SETTINGS_KEY = 'covenantSettings';
+// ── Settings helpers (shared with SettingsPanel) ────────────────────────────
 const DEFAULT_SETTINGS = { sensitivity: 20, volume: 70, brightness: 60, fov: 75, shadows: true, antialiasing: true, showFPS: false };
-
 function loadSettings() {
-  try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; }
+  try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('covenantSettings') || '{}') }; }
   catch { return { ...DEFAULT_SETTINGS }; }
 }
-function saveSettings(s) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
-}
+function saveSettings(s) { try { localStorage.setItem('covenantSettings', JSON.stringify(s)); } catch {} }
 
-// ── Pause / Settings panel ────────────────────────────────────────────────────
+// ── Pause / Settings panel ───────────────────────────────────────────────────
 function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
   const [tab, setTab] = useState('controls');
-  const [s, setS] = useState(loadSettings);
+  const [settings, setSettings] = useState(loadSettings);
 
-  // Apply a setting change: save to localStorage + push to engine in real time
-  const update = (key, value) => {
-    const next = { ...s, [key]: value };
-    setS(next);
+  const update = (key, val) => {
+    const next = { ...settings, [key]: val };
+    setSettings(next);
     saveSettings(next);
-    const eng = engineRef?.current;
-    if (!eng) return;
-    if (key === 'sensitivity') eng.sensitivity = (value / 100) * 0.004;
-    if (key === 'volume')      eng.sounds?.setVolume(value / 100);
-    if (key === 'brightness') {
-      const b = value / 100 * 3.0;
-      if (eng.ambientLight) eng.ambientLight.intensity = 1.8 * b;
-      if (eng.dirLight)     eng.dirLight.intensity     = 1.5 * b;
-      if (eng.fillLight)    eng.fillLight.intensity    = 0.8 * b;
-      if (eng.heartLight)   eng.heartLight.intensity   = 4   * b;
-      if (eng.renderer)     eng.renderer.toneMappingExposure = 2.5 * b;
-      if (eng.settings)     eng.settings.brightness = b;
-    }
-    if (key === 'fov' && eng.camera) {
-      eng.camera.fov = value;
-      eng.camera.updateProjectionMatrix();
-    }
-    // showFPS, shadows, antialiasing are read from localStorage by GameHUD / engine init
+    if (engineRef?.current?.updateSettings) engineRef.current.updateSettings(next);
   };
 
   const tabs = [
@@ -53,53 +31,48 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
     { id: 'video',    label: 'Video',    icon: Monitor  },
   ];
 
-  const bindings = [
-    { action: 'Move',             key: 'WASD'           },
-    { action: 'Sprint',           key: 'SHIFT'          },
-    { action: 'Crouch',           key: 'C / CTRL'       },
-    { action: 'Lean L / R',       key: 'Q / E'          },
-    { action: 'Shoot',            key: 'LMB'            },
-    { action: 'ADS',              key: 'RMB'            },
-    { action: 'Reload',           key: 'R'              },
-    { action: 'Ability',          key: 'F'              },
-    { action: 'Switch Weapon',    key: '1 / 2 / 3 / SCROLL' },
-    { action: 'Pause / Settings', key: 'ESC or ⚙'      },
-  ];
-
-  const SliderRow = ({ label, valueKey, min, max, unit = '%' }) => (
-    <div className="py-2 border-b border-white/5">
+  const Slider = ({ label, k, min, max, unit='%' }) => (
+    <div className="py-2.5 border-b border-white/5">
       <div className="flex justify-between mb-1">
         <span className="text-xs font-mono text-[#8B93A6]">{label}</span>
-        <span className="text-xs font-['Rajdhani'] font-bold text-[#00E5FF]">{s[valueKey]}{unit}</span>
+        <span className="text-xs font-bold text-[#00E5FF]">{settings[k]}{unit}</span>
       </div>
-      <input type="range" min={min} max={max} value={s[valueKey]}
-        onChange={e => update(valueKey, Number(e.target.value))}
+      <input type="range" min={min} max={max} value={settings[k]}
+        onChange={e => update(k, Number(e.target.value))}
         className="w-full h-1 bg-[#12141C] appearance-none cursor-pointer accent-[#00E5FF]" />
     </div>
   );
 
-  const ToggleRow = ({ label, valueKey }) => (
-    <div className="flex justify-between items-center py-2 border-b border-white/5">
-      <span className="text-xs font-mono text-[#8B93A6]">{label}</span>
-      <button onClick={() => update(valueKey, !s[valueKey])}
-        className={`relative w-9 h-4 rounded-full transition-colors ${s[valueKey] ? 'bg-[#00E5FF]' : 'bg-[#1a1a2e] border border-white/20'}`}>
-        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${s[valueKey] ? 'left-5' : 'left-0.5'}`} />
+  const Toggle = ({ label, k, desc }) => (
+    <div className="flex justify-between items-center py-2.5 border-b border-white/5">
+      <div>
+        <span className="text-xs font-mono text-[#8B93A6]">{label}</span>
+        {desc && <p className="text-xs font-mono text-[#4B5365] mt-0.5">{desc}</p>}
+      </div>
+      <button onClick={() => update(k, !settings[k])}
+        className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${settings[k] ? 'bg-[#00E5FF]' : 'bg-[#1a1a2e] border border-white/20'}`}>
+        <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all duration-200 ${settings[k] ? 'left-4' : 'left-0.5'}`} />
       </button>
     </div>
   );
 
+  const bindings = [
+    ['MOVE', 'WASD'], ['SPRINT', 'SHIFT'], ['CROUCH', 'C / CTRL'],
+    ['LEAN L / R', 'Q / E'], ['SHOOT', 'LMB'], ['ADS', 'RMB'],
+    ['RELOAD', 'R'], ['ABILITY', 'F'], ['SWITCH WEAPON', '1 2 3 / SCROLL'],
+    ['PAUSE / SETTINGS', 'ESC or ⚙'],
+  ];
+
   return (
     <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md">
-      <div className="w-full max-w-xl bg-[#0a0b10] border border-white/10 shadow-2xl">
+      <div className="w-full max-w-xl bg-[#0a0b10] border border-white/10 shadow-2xl" onClick={e => e.stopPropagation()}>
 
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div>
-            <h2 className="text-xl font-['Rajdhani'] font-bold text-white uppercase tracking-widest">PAUSED</h2>
-            <p className="text-xs font-mono text-[#4B5365]">Clica RESUME ou ESC para continuar</p>
+            <h2 className="text-xl font-['Rajdhani'] font-bold text-white uppercase tracking-widest">PAUSED — SYSTEMS CONFIG</h2>
+            <p className="text-xs font-mono text-[#4B5365]">Settings saved automatically</p>
           </div>
-          <button onClick={onResume} className="text-[#8B93A6] hover:text-[#00E5FF] transition-colors">
-            <X size={20} />
-          </button>
+          <button onClick={onResume} className="text-[#8B93A6] hover:text-[#00E5FF] transition-colors"><X size={20} /></button>
         </div>
 
         <div className="flex gap-1 px-6 pt-4">
@@ -113,30 +86,30 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
           ))}
         </div>
 
-        <div className="px-6 py-4 max-h-72 overflow-y-auto">
+        <div className="px-6 py-3 max-h-64 overflow-y-auto">
           {tab === 'controls' && (
             <div>
-              {bindings.map(b => (
-                <div key={b.action} className="flex justify-between items-center py-1.5 border-b border-white/5">
-                  <span className="text-xs font-mono text-[#8B93A6]">{b.action}</span>
-                  <span className="text-xs font-['Rajdhani'] font-semibold text-[#00E5FF] bg-[#12141C] px-2 py-0.5 border border-white/10">{b.key}</span>
+              {bindings.map(([a,k]) => (
+                <div key={a} className="flex justify-between items-center py-1.5 border-b border-white/5">
+                  <span className="text-xs font-mono text-[#8B93A6]">{a}</span>
+                  <span className="text-xs font-['Rajdhani'] font-semibold text-[#00E5FF] bg-[#12141C] px-2 py-0.5 border border-white/10">{k}</span>
                 </div>
               ))}
-              <div className="pt-2"><SliderRow label="MOUSE SENSITIVITY" valueKey="sensitivity" min={5} max={100} unit="" /></div>
+              <Slider label="MOUSE SENSITIVITY" k="sensitivity" min={5} max={100} unit="" />
             </div>
           )}
           {tab === 'audio' && (
-            <div className="pt-1">
-              <SliderRow label="MASTER VOLUME" valueKey="volume" min={0} max={100} />
+            <div>
+              <Slider label="MASTER VOLUME" k="volume" min={0} max={100} />
             </div>
           )}
           {tab === 'video' && (
-            <div className="pt-1">
-              <SliderRow label="BRIGHTNESS" valueKey="brightness" min={10} max={100} />
-              <SliderRow label="FIELD OF VIEW" valueKey="fov" min={60} max={110} unit="°" />
-              <ToggleRow label="SHADOWS" valueKey="shadows" />
-              <ToggleRow label="ANTIALIASING" valueKey="antialiasing" />
-              <ToggleRow label="SHOW FPS COUNTER" valueKey="showFPS" />
+            <div>
+              <Slider label="BRIGHTNESS" k="brightness" min={10} max={100} />
+              <Slider label="FIELD OF VIEW" k="fov" min={60} max={110} unit="°" />
+              <Toggle label="SHADOWS" k="shadows" desc="Disable for better performance." />
+              <Toggle label="ANTIALIASING" k="antialiasing" desc="Smooths edges. Requires restart." />
+              <Toggle label="SHOW FPS COUNTER" k="showFPS" desc="Display FPS in corner." />
             </div>
           )}
         </div>
@@ -169,7 +142,6 @@ export default function GameView({ mode, roomId, playerName, operatorId, onExit 
 
   const [isLocked,    setIsLocked]    = useState(false);
   const [isPaused,    setIsPaused]    = useState(false);
-
   const [gameState, setGameState] = useState({
     health: 100, maxHealth: 100, armor: 50, maxArmor: 50,
     ammo: 30, maxAmmo: 30, weaponName: 'CR-7 Assault Rifle', weaponType: 'rifle',
@@ -280,7 +252,8 @@ export default function GameView({ mode, roomId, playerName, operatorId, onExit 
 
   return (
     <div data-testid="game-view" className="relative w-screen h-screen overflow-hidden">
-      <div ref={containerRef} id="game-canvas" className="absolute inset-0"
+      <div ref={containerRef} id="game-canvas"
+        className={`absolute inset-0 ${isPaused ? "pointer-events-none" : ""}`}
         data-testid="game-canvas-container" />
 
       {/* Deploy overlay — ONLY when not locked AND not paused AND not game over */}

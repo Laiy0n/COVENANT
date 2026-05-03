@@ -243,9 +243,10 @@ async def game_loop(room: GameRoom):
         elif room.heart_health <= 0:
             room.game_over = True
             room.winner = "humans"
-        elif not alive_enemies and room.heart_health > 0:
-            # Spawn more enemies
-            room.spawn_enemies(min(8, 5 + len(room.players)))
+        elif not alive_enemies and room.heart_health > 0 and not room.game_over:
+            # All aliens dead — humans win the round
+            room.game_over = True
+            room.winner = "humans"
             
         # Broadcast state
         state = room.get_state()
@@ -352,6 +353,12 @@ async def websocket_game(websocket: WebSocket, room_id: str):
                     except Exception:
                         pass
                         
+            elif msg_type == "plant_complete":
+                # Player planted the device — humans win
+                if not room.game_over:
+                    room.game_over = True
+                    room.winner = "humans"
+                    
             elif msg_type == "reload":
                 if player_id in room.players:
                     room.players[player_id]["ammo"] = room.players[player_id]["max_ammo"]
