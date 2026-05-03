@@ -154,7 +154,7 @@ export class WeaponSystem {
     
     this.camera.add(group);
     this.weaponMesh = group;
-    this.scene.add(this.camera);
+    // scene.add(camera) is done once in GameEngine.init() — not here
   }
   
   getCurrentWeapon() {

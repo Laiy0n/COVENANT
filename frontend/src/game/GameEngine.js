@@ -74,7 +74,26 @@ export class GameEngine {
     this.damageIndicators = [];
     
     this.raycaster = new THREE.Raycaster();
-    this.sensitivity = 0.002;
+    // Read sensitivity from SettingsPanel localStorage
+    const savedSens = parseFloat(localStorage.getItem('covenantSettings') && JSON.parse(localStorage.getItem('covenantSettings')).sensitivity || 20);
+    this.sensitivity = (savedSens / 100) * 0.004; // 5→0.0002 … 100→0.004
+
+    // ── Pre-allocated scratch vectors (NEVER new THREE.Vector3 inside loops) ──
+    this._fwd    = new THREE.Vector3();  // movement forward
+    this._right  = new THREE.Vector3();  // movement right
+    this._dir    = new THREE.Vector3();  // movement direction
+    this._newPos = new THREE.Vector3();  // candidate position
+    this._lean   = new THREE.Vector3();  // lean offset
+    this._axis   = new THREE.Vector3(0, 1, 0); // constant Y axis
+    this._eDir   = new THREE.Vector3();  // enemy→player direction
+    this._eMove  = new THREE.Vector3();  // enemy movement delta
+    this._pBox   = new THREE.Box3();     // player collision box (reused)
+    
+    // HUD throttle: only push React state updates ~15x/s instead of 60x/s
+    this._hudTimer = 0;
+    this._hudInterval = 1 / 15;
+    // Cache wall bounding boxes to avoid recreating Box3 every frame
+    this._wallBoxCache = null;
     
     // Character/operator abilities
     this.operator = config.operator || null;
@@ -93,14 +112,19 @@ export class GameEngine {
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.copy(this.player.position);
     
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // Load saved settings
+    let _cfg = {};
+    try { _cfg = JSON.parse(localStorage.getItem('covenantSettings') || '{}'); } catch {}
+    const _brightness  = _cfg.brightness  ?? 60;
+    const _shadows     = _cfg.shadows     ?? false;
+    const _antialias   = _cfg.antialiasing ?? true;
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: _antialias, alpha: false });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.shadowMap.enabled = _shadows;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // FIX 1: Increased exposure from 0.8 to 1.4 for much brighter scene
-    this.renderer.toneMappingExposure = 1.4;
+    this.renderer.toneMappingExposure = 0.6 + (_brightness / 100) * 1.6; // 10→0.76 … 100→2.2
     this.container.appendChild(this.renderer.domElement);
     
     this.setupLighting();
@@ -108,11 +132,24 @@ export class GameEngine {
     this.createHeart();
     this.enemies = createEnemies(this.scene, 5);
     
+    // Camera must be in the scene so weapon meshes (children of camera) render
+    this.scene.add(this.camera);
+
     // Initialize weapon system
     this.weaponSystem = new WeaponSystem(this.scene, this.camera, this.operator);
     
+    // Single reusable muzzle flash light — toggled on/off instead of creating new each shot
+    this.muzzleFlash = new THREE.PointLight(0xffaa00, 0, 6);
+    this.scene.add(this.muzzleFlash);
+    this._muzzleTimeout = null;
+    
     this.setupControls();
-    window.addEventListener('resize', this.onResize.bind(this));
+    // Pre-cache all wall bounding boxes so checkCollision doesn't allocate every frame
+    this._wallBoxCache = this.mapObjects
+      .filter(o => o.userData?.isWall)
+      .map(o => ({ box: new THREE.Box3().setFromObject(o) }));
+    
+    this._onResize = this.onResize.bind(this); window.addEventListener('resize', this._onResize);
     
     // Start round timer
     this.startRound();
@@ -120,39 +157,10 @@ export class GameEngine {
   }
   
   setupLighting() {
-    // FIX 1: Significantly brighter ambient light
-    const ambient = new THREE.AmbientLight(0x8899cc, 1.8);
-    this.scene.add(ambient);
-    
-    // FIX 1: Stronger directional light
-    const dirLight = new THREE.DirectionalLight(0xaabbff, 1.5);
-    dirLight.position.set(10, 20, 10);
-    dirLight.castShadow = true;
-    this.scene.add(dirLight);
-
-    // FIX 1: Add a second fill light from opposite direction
-    const fillLight = new THREE.DirectionalLight(0x334466, 0.8);
-    fillLight.position.set(-10, 10, -10);
-    this.scene.add(fillLight);
-    
-    // Emergency red lights - increased intensity
-    const redPositions = [[10, 3, 0], [-10, 3, 10], [15, 3, -15], [-15, 3, 20]];
-    redPositions.forEach(pos => {
-      const light = new THREE.PointLight(0xff2222, 3.0, 20);
-      light.position.set(...pos);
-      this.scene.add(light);
-    });
-    
-    // Cyan tech lights - increased intensity and range
-    const cyanPositions = [[0, 4, -15], [0, 4, 15], [-20, 4, 0], [20, 4, 0]];
-    cyanPositions.forEach(pos => {
-      const light = new THREE.PointLight(0x00e5ff, 3.0, 25);
-      light.position.set(...pos);
-      this.scene.add(light);
-    });
-    
-    // Heart glow
-    this.heartLight = new THREE.PointLight(0xff4444, 4, 30);
+    // Map.js now owns all scene-wide lighting (ambient + directional + accent points).
+    // Engine only adds the heart-reactive glow light here to keep it in sync with
+    // gameState.heartHealth in updateHeart().
+    this.heartLight = new THREE.PointLight(0xff4444, 5, 35);
     this.heartLight.position.set(0, 3, -20);
     this.scene.add(this.heartLight);
   }
@@ -182,30 +190,22 @@ export class GameEngine {
     
     const heartMesh = new THREE.Mesh(heartGeo, heartMat);
     heartMesh.position.set(0, 3, -20);
-    heartMesh.castShadow = true;
     heartMesh.userData = { type: 'heart' };
     heartGroup.add(heartMesh);
     this.heartMesh = heartMesh;
     
-    // Tendrils
-    for (let i = 0; i < 10; i++) {
-      const angle = (Math.PI * 2 / 10) * i;
+    // Tendrils — reduced to 6, simpler tube (8 segments instead of 20, 6-sided instead of 8)
+    // Shared material for all tendrils = 1 draw call vs 10
+    const tubeMat = new THREE.MeshLambertMaterial({ color: 0x6b1515, emissive: 0x220000 });
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI * 2 / 6) * i;
       const curve = new THREE.CatmullRomCurve3([
         new THREE.Vector3(0, 3, -20),
-        new THREE.Vector3(Math.cos(angle) * 5, 2 + Math.random() * 3, -20 + Math.sin(angle) * 5),
-        new THREE.Vector3(Math.cos(angle) * 12, 0.5 + Math.random() * 2, -20 + Math.sin(angle) * 12),
+        new THREE.Vector3(Math.cos(angle) * 4, 2 + Math.random() * 2, -20 + Math.sin(angle) * 4),
+        new THREE.Vector3(Math.cos(angle) * 10, 0.5, -20 + Math.sin(angle) * 10),
       ]);
-      
-      const tubeGeo = new THREE.TubeGeometry(curve, 20, 0.2 + Math.random() * 0.4, 8, false);
-      const tubeMat = new THREE.MeshStandardMaterial({
-        color: 0x6b1515,
-        roughness: 0.8,
-        emissive: 0x220000,
-        emissiveIntensity: 0.3
-      });
-      const tube = new THREE.Mesh(tubeGeo, tubeMat);
-      tube.castShadow = true;
-      heartGroup.add(tube);
+      const tubeGeo = new THREE.TubeGeometry(curve, 8, 0.25, 6, false);
+      heartGroup.add(new THREE.Mesh(tubeGeo, tubeMat));
     }
     
     this.scene.add(heartGroup);
@@ -217,8 +217,8 @@ export class GameEngine {
       if (!this.isLocked) this.container.requestPointerLock();
     };
     this._onPointerLockChange = () => {
+      // Only update internal isLocked flag; GameView owns the React state
       this.isLocked = document.pointerLockElement === this.container;
-      if (this.onStateUpdate) this.onStateUpdate({ locked: this.isLocked });
     };
     this._onMouseMove = (e) => {
       if (!this.isLocked) return;
@@ -228,6 +228,11 @@ export class GameEngine {
       this.player.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, this.player.rotation.x));
     };
     this._onKeyDown = (e) => {
+      if (e.code === 'Escape') {
+        if (document.pointerLockElement) document.exitPointerLock();
+        // GameView listens to pointerlockchange and handles pause itself
+        return;
+      }
       if (!this.isLocked) return;
       switch (e.code) {
         case 'KeyW': this.player.moveForward = true; break;
@@ -496,130 +501,131 @@ export class GameEngine {
   }
   
   createMuzzleFlash() {
-    const flash = new THREE.PointLight(0xffaa00, 5, 5);
-    flash.position.copy(this.camera.position);
+    // Reuse the single muzzle light — never allocates new objects
     const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
-    flash.position.add(dir.multiplyScalar(0.5));
-    this.scene.add(flash);
-    setTimeout(() => this.scene.remove(flash), 40);
+    this.muzzleFlash.position.copy(this.camera.position).addScaledVector(dir, 0.5);
+    this.muzzleFlash.intensity = 5;
+    if (this._muzzleTimeout) clearTimeout(this._muzzleTimeout);
+    this._muzzleTimeout = setTimeout(() => { this.muzzleFlash.intensity = 0; }, 40);
   }
   
   updateMovement(delta) {
     if (!this.player.isAlive) return;
-    
-    // R6 Siege style speeds
-    let speed = 5.5; // Base walk speed
+
+    // R6 Siege speed tiers
+    let speed = 5.5;
     if (this.player.isSprinting && !this.player.isADS) speed = 9;
     if (this.player.isCrouching) speed = 3;
-    if (this.player.isADS) speed = 3.5;
-    
-    // Vanguard speed boost
+    if (this.player.isADS)       speed = 3.5;
     if (this.operator?.id === 'vanguard' && this.abilityActive) speed *= 1.5;
-    
-    const direction = new THREE.Vector3();
-    const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation.y);
-    const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation.y);
-    
-    if (this.player.moveForward) direction.add(forward);
-    if (this.player.moveBackward) direction.sub(forward);
-    if (this.player.moveRight) direction.add(right);
-    if (this.player.moveLeft) direction.sub(right);
-    
-    if (direction.length() > 0) {
-      direction.normalize();
-      const newPos = this.player.position.clone().add(direction.multiplyScalar(speed * delta));
-      
-      if (!this.checkCollision(newPos)) {
-        this.player.position.copy(newPos);
+
+    // ── Zero-allocation movement using pre-allocated scratch vectors ──
+    this._fwd.set(0, 0, -1).applyAxisAngle(this._axis, this.player.rotation.y);
+    this._right.set(1, 0, 0).applyAxisAngle(this._axis, this.player.rotation.y);
+    this._dir.set(0, 0, 0);
+
+    if (this.player.moveForward)  this._dir.add(this._fwd);
+    if (this.player.moveBackward) this._dir.sub(this._fwd);
+    if (this.player.moveRight)    this._dir.add(this._right);
+    if (this.player.moveLeft)     this._dir.sub(this._right);
+
+    const prevStep = this.player.stepTimer;
+    if (this._dir.lengthSq() > 0) {
+      this._dir.normalize();
+      this._newPos.copy(this.player.position).addScaledVector(this._dir, speed * delta);
+
+      if (!this.checkCollision(this._newPos)) {
+        this.player.position.copy(this._newPos);
       }
-      
-      // Head bob
+
       this.player.stepTimer += delta * speed * 0.5;
       this.player.headBob = Math.sin(this.player.stepTimer * 2) * (this.player.isSprinting ? 0.06 : 0.03);
-      
-      // Footstep sounds
-      if (Math.floor(this.player.stepTimer) !== Math.floor(this.player.stepTimer - delta * speed * 0.5)) {
+
+      if (Math.floor(this.player.stepTimer) !== Math.floor(prevStep)) {
         this.sounds.play('footstep');
       }
     } else {
       this.player.headBob *= 0.9;
     }
-    
+
     // Smooth crouch
     this.player.crouchHeight += (this.player.targetCrouchHeight - this.player.crouchHeight) * delta * 10;
     this.player.position.y = this.player.crouchHeight + this.player.headBob;
-    
-    // Smooth lean
-    const targetLean = this.player.isLeaning * 0.15;
-    this.player.leanAngle += (targetLean - this.player.leanAngle) * delta * 12;
-    
-    // Update camera
+
+    // ── R6-style lean: pronounced angle + lateral offset + soft-cap rotation + speed penalty ──
+    const isLeaning = this.player.isLeaning !== 0;
+    const targetLean = this.player.isLeaning * 0.22;
+    this.player.leanAngle += (targetLean - this.player.leanAngle) * delta * 10;
+    if (isLeaning) speed = Math.min(speed, 3.5);
+    if (isLeaning) {
+      if (!this.player.leanBaseY) this.player.leanBaseY = this.player.rotation.y;
+      const maxLeanRot = Math.PI / 3;
+      const rotDelta = this.player.rotation.y - this.player.leanBaseY;
+      if (Math.abs(rotDelta) > maxLeanRot)
+        this.player.rotation.y = this.player.leanBaseY + Math.sign(rotDelta) * maxLeanRot;
+    } else {
+      this.player.leanBaseY = null;
+    }
+
+    // Update camera (zero allocations)
     this.camera.position.copy(this.player.position);
-    // Apply lean offset
-    const leanOffset = new THREE.Vector3(this.player.leanAngle * 2, 0, 0)
-      .applyAxisAngle(new THREE.Vector3(0, 1, 0), this.player.rotation.y);
-    this.camera.position.add(leanOffset);
-    
+    this._lean.set(this.player.leanAngle * 2.5, this.player.leanAngle * -0.08, 0)
+      .applyAxisAngle(this._axis, this.player.rotation.y);
+    this.camera.position.add(this._lean);
     this.camera.rotation.set(this.player.rotation.x, this.player.rotation.y, this.player.leanAngle, 'YXZ');
   }
   
   checkCollision(position) {
-    const playerRadius = 0.4;
-    for (const obj of this.mapObjects) {
-      if (!obj.userData || !obj.userData.isWall) continue;
-      const box = new THREE.Box3().setFromObject(obj);
-      const playerBox = new THREE.Box3(
-        new THREE.Vector3(position.x - playerRadius, 0, position.z - playerRadius),
-        new THREE.Vector3(position.x + playerRadius, 2, position.z + playerRadius)
-      );
-      if (box.intersectsBox(playerBox)) return true;
+    // Reuse pre-allocated Box3 — zero allocations per call
+    const r = 0.4;
+    this._pBox.min.set(position.x - r, 0,         position.z - r);
+    this._pBox.max.set(position.x + r, 2, position.z + r);
+    if (!this._wallBoxCache) return false;
+    for (const { box } of this._wallBoxCache) {
+      if (box.intersectsBox(this._pBox)) return true;
     }
     return false;
   }
   
   updateEnemyAI(delta) {
+    const now = this.clock.getElapsedTime();
+    const isPhantom = this.operator?.id === 'phantom' && this.abilityActive;
+    let aliveCount = 0;
+
     for (const enemy of this.enemies) {
       if (!enemy.alive) continue;
-      
-      // Stun check
+      aliveCount++;
+
       if (enemy.stunned) {
         enemy.stunTime -= delta;
         if (enemy.stunTime <= 0) enemy.stunned = false;
         continue;
       }
-      
-      // Phantom ability - enemies lose player
-      if (this.operator?.id === 'phantom' && this.abilityActive) continue;
-      
-      const dir = new THREE.Vector3().subVectors(this.player.position, enemy.mesh.position).normalize();
-      const dist = enemy.mesh.position.distanceTo(this.player.position);
-      
+      if (isPhantom) continue;
+
+      // ── Zero-allocation direction + distance ──
+      this._eDir.subVectors(this.player.position, enemy.mesh.position);
+      const dist = this._eDir.length();
+      this._eDir.divideScalar(dist); // manual normalize avoids sqrt twice
+
       if (dist > 2.5) {
-        const moveSpeed = enemy.speed * delta;
-        const newPos = enemy.mesh.position.clone().add(dir.clone().multiplyScalar(moveSpeed));
-        enemy.mesh.position.copy(newPos);
+        // ── Zero-allocation move: reuse _eMove ──
+        this._eMove.copy(this._eDir).multiplyScalar(enemy.speed * delta);
+        enemy.mesh.position.add(this._eMove);
         enemy.mesh.lookAt(this.player.position);
       } else {
-        // Attack
-        const currentTime = this.clock.getElapsedTime();
-        if (!enemy.lastAttack || currentTime - enemy.lastAttack > 1.0) {
-          enemy.lastAttack = currentTime;
-          
-          // Damage calc with armor
+        if (now - (enemy.lastAttack || 0) > 1.0) {
+          enemy.lastAttack = now;
           let damage = enemy.damage;
           if (this.player.armor > 0) {
-            const armorAbsorb = Math.min(damage * 0.6, this.player.armor);
-            this.player.armor -= armorAbsorb;
-            damage -= armorAbsorb;
+            const absorb = Math.min(damage * 0.6, this.player.armor);
+            this.player.armor -= absorb;
+            damage -= absorb;
           }
           this.player.health -= damage;
-          
-          // Damage indicator
           this.addDamageIndicator(enemy.mesh.position);
           this.sounds.play('playerHit');
-          
           if (this.onStateUpdate) this.onStateUpdate({ damaged: true });
-          
           if (this.player.health <= 0) {
             this.player.health = 0;
             this.player.isAlive = false;
@@ -629,16 +635,19 @@ export class GameEngine {
           }
         }
       }
-      
-      // Animate
-      enemy.mesh.position.y = (enemy.type === 'crawler' ? 0.8 : 1.5) + Math.sin(this.clock.getElapsedTime() * 3 + enemy.id) * 0.15;
+
+      // Animate bob (cheap — no allocation)
+      enemy.mesh.position.y = (enemy.type === 'crawler' ? 0.8 : 1.5) + Math.sin(now * 3 + enemy.id) * 0.15;
     }
-    
-    const aliveCount = this.enemies.filter(e => e.alive).length;
+
     this.gameState.enemiesAlive = aliveCount;
-    
+
     if (aliveCount === 0 && !this.gameState.gameOver) {
       this.gameState.wave++;
+      this.enemies = this.enemies.filter(e => {
+        if (!e.alive) { this.scene.remove(e.mesh); return false; }
+        return true;
+      });
       const newEnemies = createEnemies(this.scene, Math.min(12, 3 + this.gameState.wave * 2));
       this.enemies.push(...newEnemies);
     }
@@ -774,13 +783,44 @@ export class GameEngine {
       abilityCharge: this.abilityCharge,
       abilityActive: this.abilityActive,
       operatorId: this.operator?.id,
-      damageIndicators: this.damageIndicators
+      damageIndicators: this.damageIndicators,
+      fps: this._fps || 0
     });
   }
   
+  updateSettings(settings) {
+    // Called by SettingsPanel in real-time via engineRef.current.updateSettings(settings)
+    if (settings.sensitivity !== undefined) {
+      this.sensitivity = (settings.sensitivity / 100) * 0.004;
+    }
+    if (settings.brightness !== undefined) {
+      this.renderer.toneMappingExposure = 0.6 + (settings.brightness / 100) * 1.6;
+    }
+    if (settings.fov !== undefined) {
+      this.camera.fov = settings.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    if (settings.volume !== undefined && this.sounds) {
+      this.sounds.setVolume(settings.volume / 100);
+    }
+    if (settings.shadows !== undefined) {
+      this.renderer.shadowMap.enabled = settings.shadows;
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+  }
+
   animate() {
     this.animationId = requestAnimationFrame(this.animate.bind(this));
     const delta = Math.min(this.clock.getDelta(), 0.1);
+
+    // FPS counter — updates once per second
+    this._fpsFrames = (this._fpsFrames || 0) + 1;
+    this._fpsTimer  = (this._fpsTimer  || 0) + delta;
+    if (this._fpsTimer >= 1.0) {
+      this._fps = Math.round(this._fpsFrames / this._fpsTimer);
+      this._fpsFrames = 0;
+      this._fpsTimer  = 0;
+    }
     
     if (this.isLocked && !this.gameState.gameOver) {
       this.updateMovement(delta);
@@ -803,7 +843,12 @@ export class GameEngine {
     // FIX 2: Update hit effects every frame in the main loop (not separate RAF loops)
     this.updateHitEffects(delta);
     
-    this.updateHUD();
+    // FIX: Throttle HUD updates to ~15/s to avoid 60 React re-renders/second
+    this._hudTimer += delta;
+    if (this._hudTimer >= this._hudInterval) {
+      this._hudTimer = 0;
+      this.updateHUD();
+    }
     this.renderer.render(this.scene, this.camera);
   }
   
@@ -816,7 +861,7 @@ export class GameEngine {
   dispose() {
     if (this.animationId) cancelAnimationFrame(this.animationId);
     if (this.roundInterval) clearInterval(this.roundInterval);
-    window.removeEventListener('resize', this.onResize.bind(this));
+    if (this._onResize) window.removeEventListener('resize', this._onResize);
     
     // Remove all stored event listeners
     if (this._onClick) this.container.removeEventListener('click', this._onClick);
@@ -828,6 +873,9 @@ export class GameEngine {
     if (this._onMouseUp) document.removeEventListener('mouseup', this._onMouseUp);
     if (this._onContextMenu) this.container.removeEventListener('contextmenu', this._onContextMenu);
     if (this._onWheel) document.removeEventListener('wheel', this._onWheel);
+
+    if (this._muzzleTimeout) clearTimeout(this._muzzleTimeout);
+    if (this.muzzleFlash) { this.scene.remove(this.muzzleFlash); this.muzzleFlash = null; }
 
     // Clean up any remaining hit effects
     for (const fx of this.hitEffects) {

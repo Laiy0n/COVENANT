@@ -4,7 +4,10 @@ export class SoundManager {
     this.ctx = null;
     this.sounds = {};
     this.enabled = true;
-    this.volume = 0.5;
+    // Read volume from SettingsPanel localStorage
+    let _vol = 70;
+    try { _vol = JSON.parse(localStorage.getItem('covenantSettings') || '{}').volume ?? 70; } catch {}
+    this.volume = _vol / 100;
     this.initialized = false;
   }
   
@@ -12,10 +15,7 @@ export class SoundManager {
     if (this.initialized) return;
     try {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-      // Resume immediately — browsers require this after user gesture
-      if (this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
-      }
+      if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
       this.initialized = true;
     } catch (e) {
       console.warn('Web Audio not available:', e);
@@ -253,6 +253,12 @@ export class SoundManager {
   
   setVolume(vol) {
     this.volume = Math.max(0, Math.min(1, vol));
+    // Persist so next session picks it up
+    try {
+      const cfg = JSON.parse(localStorage.getItem('covenantSettings') || '{}');
+      cfg.volume = Math.round(vol * 100);
+      localStorage.setItem('covenantSettings', JSON.stringify(cfg));
+    } catch {}
   }
   
   dispose() {
