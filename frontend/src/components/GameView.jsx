@@ -58,7 +58,7 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
 
   const bindings = [
     ['MOVE', 'WASD'], ['SPRINT', 'SHIFT'], ['CROUCH', 'C / CTRL'],
-    ['LEAN RIGHT',      'E'], ['SHOOT', 'LMB'], ['ADS', 'RMB'],
+    ['LEAN L / R',      'Q / E'], ['SHOOT', 'LMB'], ['ADS', 'RMB'],
     ['RELOAD', 'R'], ['ABILITY', 'F'], ['SWITCH WEAPON', '1 2 3 / SCROLL'],
     ['PAUSE / SETTINGS',  'ESC or ⚙'],
   ];
@@ -134,7 +134,7 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
 }
 
 // ── GameView ─────────────────────────────────────────────────────────────────
-export default function GameView({ mode, roomId, playerName, operatorId, onExit }) {
+export default function GameView({ mode, roomId, playerName, operatorId, team, onExit }) {
   const containerRef = useRef(null);
   const engineRef    = useRef(null);
   const wsRef        = useRef(null);
@@ -186,7 +186,7 @@ export default function GameView({ mode, roomId, playerName, operatorId, onExit 
     if (!containerRef.current) return;
     gameOverRef.current = false;
     const operator = operatorId ? getOperator(operatorId) : getOperator('vanguard');
-    engineRef.current = new GameEngine(containerRef.current, handleStateUpdate, { mode, operator });
+    engineRef.current = new GameEngine(containerRef.current, handleStateUpdate, { mode, operator, team: team || 'human' });
     if (mode === 'multiplayer' && roomId) connectWebSocket();
     return () => {
       if (engineRef.current) { engineRef.current.dispose(); engineRef.current = null; }
@@ -281,7 +281,7 @@ export default function GameView({ mode, roomId, playerName, operatorId, onExit 
                 <p><span className="text-[#00E5FF]">LMB</span> — Shoot</p>
                 <p><span className="text-[#00E5FF]">RMB</span> — ADS</p>
                 <p><span className="text-[#00E5FF]">R</span> — Reload</p>
-                <p><span className="text-[#00E5FF]">F</span> — Plant device</p>
+                <p><span className="text-[#00E5FF]">G</span> — Plant device</p>
               </div>
               <div className="col-span-2 pt-2 border-t border-white/5 text-center">
                 <p><span className="text-[#00E5FF]">1/2/3</span> ou <span className="text-[#00E5FF]">SCROLL</span> — Arma &nbsp;|&nbsp; <span className="text-[#00E5FF]">ESC</span> — Pause</p>

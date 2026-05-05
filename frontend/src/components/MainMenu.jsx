@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Settings, Play, Users, Trophy, Volume2 } from 'lucide-react';
 
-const MONSTER_IMG = "https://customer-assets.emergentagent.com/job_f0e12b6a-b7ce-46dc-b3c1-1064d0f8f2cc/artifacts/aitj0j7h_ChatGPT%20Image%2029_03_2026%2C%2016_34_10.png";
+const MONSTER_IMG = "frontend/src/assets/Heart.png";
 
 export default function MainMenu({ onStartSingleplayer, onStartMultiplayer, onOpenSettings }) {
   const [hoveredItem, setHoveredItem] = useState(null);

@@ -25,7 +25,7 @@ export class GameEngine {
     
     // Player state - R6 Siege style
     this.player = {
-      position: new THREE.Vector3(0, 1.6, 32),
+      position: new THREE.Vector3(0, 1.6, 32), // overridden in init() based on team
       velocity: new THREE.Vector3(0, 0, 0),
       rotation: new THREE.Euler(0, 0, 0, 'YXZ'),
       health: 100,
@@ -64,7 +64,8 @@ export class GameEngine {
       roundTimeLeft: 180,
       roundActive: false,
       score: { humans: 0, aliens: 0 },
-      mode: config.mode || 'singleplayer'
+      mode: config.mode || 'singleplayer',
+      team: config.team || 'human'  // 'human' or 'alien'
     };
     
     // Weapon system
@@ -75,7 +76,7 @@ export class GameEngine {
     // Plant mechanic
     this.plantProgress = 0;    // 0-100
     this.isPlanting    = false;
-    this.plantKey      = false; // G key held
+    this.plantKey      = false; // G key held (hold G near PLANT_POSITION)
     this.devicePlanted = false;
     this.deviceTimer   = 0;    // countdown after planted
     this.plantMesh     = null;
@@ -96,6 +97,7 @@ export class GameEngine {
     this._wallBoxCache = null;
     
     // Character/operator abilities
+    this.team = config.team || 'human';
     this.operator = config.operator || null;
     this.abilityCharge = 100;
     this.abilityActive = false;
@@ -121,6 +123,14 @@ export class GameEngine {
     this.renderer.toneMappingExposure = 1.4;
     this.container.appendChild(this.renderer.domElement);
     
+    // Set spawn position based on team
+    if (this.team === 'alien') {
+      this.player.position.set(0, 1.6, -36); // near heart
+    } else {
+      this.player.position.set(0, 1.6, 32);  // spawn side
+    }
+    this.camera.position.copy(this.player.position);
+
     this.setupLighting();
     this.mapObjects = createMap(this.scene);
     this.createHeart();
@@ -265,7 +275,8 @@ export class GameEngine {
         case 'Digit1': this.weaponSystem?.switchWeapon(0); break;
         case 'Digit2': this.weaponSystem?.switchWeapon(1); break;
         case 'Digit3': this.weaponSystem?.switchWeapon(2); break;
-        case 'KeyF': this.plantKey = true; break;   // F = plant device
+        case 'KeyF': this.useAbility(); break;      // F = operator ability
+        case 'KeyG': this.plantKey = true; break;    // G = plant device (hold)
         case 'KeyQ': this.player.isLeaning = -1; break;
         default: break;
       }
@@ -277,14 +288,17 @@ export class GameEngine {
         case 'KeyA': this.player.moveLeft = false; break;
         case 'KeyD': this.player.moveRight = false; break;
         case 'ShiftLeft': this.player.isSprinting = false; break;
-        case 'KeyF': this.plantKey = false; this.isPlanting = false; break;   // release plant
+        case 'KeyG': this.plantKey = false; this.isPlanting = false; break;   // release plant
         case 'KeyE': if (this.player.isLeaning === 1) this.player.isLeaning = 0; break;
         default: break;
       }
     };
     this._onMouseDown = (e) => {
       if (!this.isLocked || !this.player.isAlive) return;
-      if (e.button === 0) this.shoot();
+      if (e.button === 0) {
+        if (this.team === 'alien') this.alienSpit();
+        else this.shoot();
+      }
       if (e.button === 2) {
         this.player.isADS = true;
         this.camera.fov = 45;
@@ -316,6 +330,21 @@ export class GameEngine {
     document.addEventListener('wheel', this._onWheel);
   }
   
+  alienSpit() {
+    const now = this.clock.getElapsedTime();
+    if (!this._lastSpit) this._lastSpit = 0;
+    if (now - this._lastSpit < 0.8) return; // 0.8s cooldown
+    this._lastSpit = now;
+
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
+    const origin = this.camera.position.clone().addScaledVector(dir, 0.5);
+    const proj = createProjectile(this.scene, origin, dir);
+    proj.isAlienPlayer = true; // mark as player projectile (hurts enemies? no — hurts other humans in MP)
+    this.allProjectiles.push(proj);
+    this.createMuzzleFlash(); // reuse for visual feedback
+    if (this.onStateUpdate) this.onStateUpdate({ alienSpit: true });
+  }
+
   shoot() {
     if (!this.weaponSystem) return;
     if (!this.weaponSystem.canShoot()) return;
@@ -618,11 +647,18 @@ export class GameEngine {
         enemy.mesh.lookAt(this.player.position);
 
         if (currentTime - enemy.lastAttack > 2.2) {
-          enemy.lastAttack = currentTime;
-          const origin = enemy.mesh.position.clone().add(new THREE.Vector3(0, 0.3, 0));
-          const proj = createProjectile(this.scene, origin, dir);
-          enemy.projectiles.push(proj);
-          this.allProjectiles.push(proj);
+          // Line-of-sight check: only shoot if no wall between spitter and player
+          const spitterOrigin = enemy.mesh.position.clone().add(new THREE.Vector3(0, 0.3, 0));
+          const toPlayer = new THREE.Vector3().subVectors(this.player.position, spitterOrigin);
+          const losRay = new THREE.Raycaster(spitterOrigin, toPlayer.clone().normalize(), 0, toPlayer.length());
+          const wallHits = losRay.intersectObjects(this.mapObjects, false);
+          if (wallHits.length === 0) {
+            // Clear line of sight — fire
+            enemy.lastAttack = currentTime;
+            const proj = createProjectile(this.scene, spitterOrigin, dir);
+            enemy.projectiles.push(proj);
+            this.allProjectiles.push(proj);
+          }
         }
       } else {
         // Melee: charge at player
@@ -872,7 +908,8 @@ export class GameEngine {
       devicePlanted: this.devicePlanted,
       deviceTimer: Math.ceil(this.deviceTimer),
       nearPlantZone: this.player.position.distanceTo(new THREE.Vector3(PLANT_POSITION.x, this.player.position.y, PLANT_POSITION.z)) < 3.0,
-      heartImmune: false
+      heartImmune: false,
+      team: this.team
     });
   }
   
