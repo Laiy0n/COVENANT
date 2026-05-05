@@ -131,7 +131,6 @@ export class GameEngine {
     }
     this.camera.position.copy(this.player.position);
 
-    this.scene.add(this.camera); // weapon model is attached to camera — camera must be in scene
     this.setupLighting();
     this.mapObjects = createMap(this.scene);
     this.createHeart();
@@ -800,7 +799,7 @@ export class GameEngine {
     for (const enemy of this.enemies) {
       this.scene.remove(enemy.mesh);
     }
-    this.enemies = createEnemies(this.scene, 5, { side: this.team });
+    this.enemies = createEnemies(this.scene, 5);
     this.gameState.wave = 1;
     this.plantProgress = 0;
     this.isPlanting = false;
@@ -826,17 +825,7 @@ export class GameEngine {
   
 
   updatePlant(delta) {
-    // Countdown always runs even after planted
-    if (this.devicePlanted) {
-      this.deviceTimer -= delta;
-      if (this.deviceTimer <= 0) {
-        this.deviceTimer = 0;
-        this.gameState.heartHealth = 0;
-        this.winRound('humans');
-      }
-      return;
-    }
-    if (!this.player.isAlive || this.gameState.gameOver) return;
+    if (!this.player.isAlive || this.gameState.gameOver || this.devicePlanted) return;
 
     // Check if near plant point
     const distToPlant = this.player.position.distanceTo(
@@ -860,6 +849,14 @@ export class GameEngine {
       if (this.plantProgress > 0 && !this.plantKey) this.plantProgress = Math.max(0, this.plantProgress - delta * 30);
     }
 
+    // Countdown device
+    if (this.devicePlanted) {
+      this.deviceTimer -= delta;
+      if (this.deviceTimer <= 0) {
+        this.gameState.heartHealth = 0;
+        this.winRound('humans');
+      }
+    }
   }
 
   _spawnPlantMesh() {
@@ -1028,7 +1025,7 @@ export class GameEngine {
     this.hitEffects = [];
     
     for (const enemy of this.enemies) this.scene.remove(enemy.mesh);
-    this.enemies = createEnemies(this.scene, 5, { side: this.team });
+    this.enemies = createEnemies(this.scene, 5);
     this.plantProgress = 0;
     this.isPlanting = false;
     this.devicePlanted = false;
