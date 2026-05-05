@@ -100,3 +100,91 @@ export const OPERATORS = [
 export function getOperator(id) {
   return OPERATORS.find(op => op.id === id) || OPERATORS[0];
 }
+
+// ── Alien / Covenant operators ────────────────────────────────────────────────
+export const ALIEN_OPERATORS = [
+  {
+    id: 'ravager',
+    name: 'RAVAGER',
+    role: 'Predator',
+    team: 'alien',
+    description: 'The apex hunter. Charges at targets with explosive speed, leaving a trail of acidic blood.',
+    ability: {
+      name: 'Blood Charge',
+      description: 'Dash forward dealing 40 damage to anything in path. Leaves acid pools.',
+      cooldown: 18,
+      icon: 'zap'
+    },
+    stats: { health: 120, armor: 20, speed: 1.3 },
+    weapons: ['bloodSpit', 'acidBurst', 'clawSlash'],
+    color: '#FF2A6D'
+  },
+  {
+    id: 'broodmother',
+    name: 'BROODMOTHER',
+    role: 'Support',
+    team: 'alien',
+    description: 'The Heart\'s herald. Heals nearby allies and temporarily boosts their speed.',
+    ability: {
+      name: 'Pulse of the Heart',
+      description: 'Emit a pulse that heals nearby aliens for 40HP and boosts speed for 5s.',
+      cooldown: 30,
+      icon: 'heart'
+    },
+    stats: { health: 100, armor: 40, speed: 0.9 },
+    weapons: ['bloodSpit', 'tendrilWhip', 'bloodSpit'],
+    color: '#CC00FF'
+  },
+  {
+    id: 'specter',
+    name: 'SPECTER',
+    role: 'Infiltrator',
+    team: 'alien',
+    description: 'Phase-shifts through cover. Near-invisible when standing still.',
+    ability: {
+      name: 'Phase Veil',
+      description: 'Become invisible when stationary. Lasts until you move or attack.',
+      cooldown: 20,
+      icon: 'eye-off'
+    },
+    stats: { health: 80, armor: 10, speed: 1.2 },
+    weapons: ['bloodSpit', 'bloodSpit', 'acidBurst'],
+    color: '#00FF99'
+  },
+  {
+    id: 'colossus',
+    name: 'COLOSSUS',
+    role: 'Tank',
+    team: 'alien',
+    description: 'Massive bio-armored brute. Absorbs enormous damage and can destroy the planted device instantly.',
+    ability: {
+      name: 'Carapace',
+      description: 'Harden exoskeleton for 6s: take 75% less damage and become immune to stun.',
+      cooldown: 35,
+      icon: 'shield'
+    },
+    stats: { health: 200, armor: 80, speed: 0.75 },
+    weapons: ['bloodSpit', 'acidBurst', 'bloodSpit'],
+    color: '#FF6600'
+  },
+  {
+    id: 'hive',
+    name: 'HIVE',
+    role: 'Recon',
+    team: 'alien',
+    description: 'Hive-mind scout. Sends a swarm pulse that reveals all enemies through walls for 8s.',
+    ability: {
+      name: 'Swarm Sense',
+      description: 'Ping all humans through walls for 8s. Allies can see them too.',
+      cooldown: 22,
+      icon: 'scan'
+    },
+    stats: { health: 85, armor: 15, speed: 1.1 },
+    weapons: ['bloodSpit', 'bloodSpit', 'acidBurst'],
+    color: '#FFEE00'
+  }
+];
+
+export function getAlienOperator(id) {
+  return ALIEN_OPERATORS.find(o => o.id === id) || ALIEN_OPERATORS[0];
+}

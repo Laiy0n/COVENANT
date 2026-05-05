@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Settings, Play, Users, Trophy, Volume2 } from 'lucide-react';
 
-const MONSTER_IMG = "frontend/src/assets/Heart.png";
+import MONSTER_IMG from "../assets/Heart.png";
 
 export default function MainMenu({ onStartSingleplayer, onStartMultiplayer, onOpenSettings }) {
   const [hoveredItem, setHoveredItem] = useState(null);

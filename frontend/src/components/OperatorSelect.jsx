@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { OPERATORS } from '../game/Operators';
+import { OPERATORS, ALIEN_OPERATORS } from '../game/Operators';
 import { Shield, Zap, Heart, Eye, EyeOff, Scan, ChevronRight } from 'lucide-react';
 
 const ICON_MAP = {
@@ -26,16 +26,16 @@ export default function OperatorSelect({ onSelect, onBack }) {
         {/* Header */}
         <div className="mb-8">
           <h2 className="text-3xl md:text-4xl font-semibold tracking-tight uppercase font-['Rajdhani'] text-white">
-            SELECT OPERATIVE
+            SELECT OPERATIVE — {team === 'alien' ? 'COVENANT SPAWN' : 'HUMAN FORCES'}
           </h2>
-          <p className="text-xs font-mono text-[#4B5365] tracking-wider">CHOOSE YOUR DEPLOYMENT SPECIALIST</p>
+          <p className="text-xs font-mono text-[#4B5365] tracking-wider">{team === 'alien' ? 'CHOOSE YOUR ALIEN FORM' : 'CHOOSE YOUR DEPLOYMENT SPECIALIST'}</p>
         </div>
 
         {/* Content Grid */}
         <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Operator Cards */}
           <div className="md:col-span-2 grid grid-cols-2 md:grid-cols-3 gap-3">
-            {OPERATORS.map(op => {
+            {opList.map(op => {
               const IconComp = ICON_MAP[op.ability.icon] || Zap;
               return (
                 <button

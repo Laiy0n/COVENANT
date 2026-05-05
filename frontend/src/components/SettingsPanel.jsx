@@ -111,8 +111,8 @@ export default function SettingsPanel({ onBack }) {
           ))}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 max-w-2xl">
+        {/* Content — scrollable */}
+        <div className="flex-1 max-w-2xl overflow-y-auto max-h-[60vh] pr-2">
           {tab === 'controls' && (
             <div>
               <Slider label="Mouse Sensitivity" k="sensitivity" min={5} max={100} unit=""
