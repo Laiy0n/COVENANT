@@ -170,6 +170,12 @@ export function createEnemies(scene, count, options = {}) {
       damage: cfg.damage, alive: true,
       lastAttack: 0, stunned: false, stunTime: 0,
       projectiles: [],
+      // FIX: these fields were missing — their absence made every enemy attack
+      // from any distance because `dist > undefined` is always false in JS,
+      // so the movement block was always skipped and the attack block always ran.
+      attackType: 'projectile',        // all alien operators are ranged spitters
+      attackRange: cfg.shootRange,     // max range at which they engage
+      shootCooldown: cfg.shootCooldown, // per-type fire-rate variation
     });
   }
   return enemies;
@@ -189,6 +195,14 @@ export function updateProjectiles(scene, projectiles, playerPos, delta) {
   let damage = 0;
   for (const p of projectiles) {
     if (!p.alive) continue;
+    // FIX: alien player's own spit must not damage themselves
+    if (p.isAlienPlayer) {
+      const move = p.speed * delta;
+      p.mesh.position.addScaledVector(p.direction, move);
+      p.traveled += move;
+      if (p.traveled >= p.maxRange) { p.alive = false; scene.remove(p.mesh); }
+      continue;
+    }
     const move = p.speed * delta;
     p.mesh.position.addScaledVector(p.direction, move);
     p.traveled += move;

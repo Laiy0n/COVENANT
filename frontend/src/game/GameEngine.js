@@ -63,6 +63,8 @@ export class GameEngine {
       roundTime: 180,
       roundTimeLeft: 180,
       roundActive: false,
+      warmupActive: false,   // CS-style freeze/prepare phase
+      warmupTimeLeft: 0,
       score: { humans: 0, aliens: 0 },
       mode: config.mode || 'singleplayer',
       team: config.team || 'human'  // 'human' or 'alien'
@@ -622,6 +624,9 @@ export class GameEngine {
   }
   
   updateEnemyAI(delta) {
+    // CS-style: enemies are frozen during the warmup/prepare phase
+    if (this.gameState.warmupActive) return;
+
     const currentTime = this.clock.getElapsedTime();
 
     for (const enemy of this.enemies) {
@@ -646,7 +651,7 @@ export class GameEngine {
         }
         enemy.mesh.lookAt(this.player.position);
 
-        if (currentTime - enemy.lastAttack > 2.2) {
+        if (currentTime - enemy.lastAttack > (enemy.shootCooldown || 2.2) && dist < (enemy.attackRange || 20)) {
           // Line-of-sight check: only shoot if no wall between spitter and player
           const spitterOrigin = enemy.mesh.position.clone().add(new THREE.Vector3(0, 0.3, 0));
           const toPlayer = new THREE.Vector3().subVectors(this.player.position, spitterOrigin);
@@ -754,13 +759,34 @@ export class GameEngine {
   
   startRound() {
     if (this.roundInterval) clearInterval(this.roundInterval);
-    this.gameState.roundActive = true;
-    this.gameState.roundTimeLeft = this.gameState.roundTime;
+
+    // CS-style: 15-second prepare/freeze phase before the round goes live
+    const WARMUP_SECONDS = 15;
+    this.gameState.warmupActive   = true;
+    this.gameState.warmupTimeLeft = WARMUP_SECONDS;
+    this.gameState.roundActive    = false;
+    this.gameState.roundTimeLeft  = this.gameState.roundTime;
+    this.updateHUD();
+
     this.roundInterval = setInterval(() => {
-      if (this.gameState.roundActive && !this.gameState.gameOver) {
+      if (this.gameState.gameOver) return;
+
+      // ── Warmup countdown ──────────────────────────────────────────
+      if (this.gameState.warmupActive) {
+        this.gameState.warmupTimeLeft--;
+        if (this.gameState.warmupTimeLeft <= 0) {
+          this.gameState.warmupActive = false;
+          this.gameState.roundActive  = true;
+        }
+        this.updateHUD();
+        return;
+      }
+
+      // ── Normal round timer ────────────────────────────────────────
+      if (this.gameState.roundActive) {
         this.gameState.roundTimeLeft--;
         if (this.gameState.roundTimeLeft <= 0) {
-          this.winRound('aliens'); // Time's up, aliens win
+          this.winRound('aliens'); // time's up — aliens win
         }
         this.updateHUD();
       }
@@ -811,9 +837,12 @@ export class GameEngine {
     
     // Reload weapons
     if (this.weaponSystem) this.weaponSystem.reloadAll();
-    
-    this.gameState.roundActive = true;
-    this.gameState.roundTimeLeft = this.gameState.roundTime;
+
+    // warmup resets via startRound() call below
+    this.gameState.warmupActive   = false;
+    this.gameState.warmupTimeLeft = 0;
+    this.gameState.roundActive    = false;
+    this.gameState.roundTimeLeft  = this.gameState.roundTime;
     this.updateHUD();
   }
   
@@ -909,7 +938,9 @@ export class GameEngine {
       deviceTimer: Math.ceil(this.deviceTimer),
       nearPlantZone: this.player.position.distanceTo(new THREE.Vector3(PLANT_POSITION.x, this.player.position.y, PLANT_POSITION.z)) < 3.0,
       heartImmune: false,
-      team: this.team
+      team: this.team,
+      warmupActive: this.gameState.warmupActive,
+      warmupTimeLeft: this.gameState.warmupTimeLeft,
     });
   }
   

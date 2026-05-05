@@ -28,6 +28,31 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
   return (
     <div className="hud-overlay" data-testid="game-hud">
 
+      {/* ── CS-style Warmup / Prepare Phase ── */}
+      {gameState.warmupActive && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-20">
+          {/* Dim the scene slightly */}
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative bg-black/80 border border-[#00E5FF]/60 px-10 py-8 text-center"
+               style={{ boxShadow: '0 0 40px rgba(0,229,255,0.15)' }}>
+            <p className="text-xs font-mono tracking-[0.3em] text-[#00E5FF] uppercase mb-2">
+              ── PREPARE PHASE ──
+            </p>
+            <p className="text-6xl font-['Rajdhani'] font-bold text-white mb-1">
+              {gameState.warmupTimeLeft ?? 15}
+            </p>
+            <p className="text-sm font-mono text-[#8B93A6] mb-4">
+              Round {gameState.round || 1} starting — get in position
+            </p>
+            <div className="space-y-1 text-xs font-mono text-[#4B5365] text-left">
+              <p><span className="text-[#00E5FF]">WASD</span> — Move &nbsp;&nbsp; <span className="text-[#00E5FF]">MOUSE</span> — Aim</p>
+              <p><span className="text-[#00E5FF]">R</span> — Reload &nbsp;&nbsp; <span className="text-[#00E5FF]">F</span> — Ability &nbsp;&nbsp; <span className="text-[#00E5FF]">G</span> — Plant</p>
+              <p><span className="text-[#00E5FF]">SHIFT</span> — Sprint &nbsp;&nbsp; <span className="text-[#00E5FF]">C</span> — Crouch &nbsp;&nbsp; <span className="text-[#00E5FF]">Q/E</span> — Lean</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Damage vignette */}
       {gameState.damaged && <div className="damage-vignette" />}
 
