@@ -1,150 +1,161 @@
 import * as THREE from 'three';
 
-const wallMat   = new THREE.MeshStandardMaterial({ color: 0x1e2030, roughness: 0.7, metalness: 0.4 });
-const metalMat  = new THREE.MeshStandardMaterial({ color: 0x2a2d40, roughness: 0.3, metalness: 0.8 });
-const floorMat  = new THREE.MeshStandardMaterial({ color: 0x12141e, roughness: 0.9, metalness: 0.1 });
-const ceilMat   = new THREE.MeshStandardMaterial({ color: 0x080a12, roughness: 0.95, metalness: 0.05 });
-const pipeMat   = new THREE.MeshStandardMaterial({ color: 0x1a2a3a, roughness: 0.4, metalness: 0.9 });
-const hazardMat = new THREE.MeshStandardMaterial({ color: 0xcc4400, roughness: 0.5, emissive: 0x440000, emissiveIntensity: 0.3 });
-const heartRoomMat = new THREE.MeshStandardMaterial({ color: 0x2a0a0a, roughness: 0.8, metalness: 0.2, emissive: 0x110000, emissiveIntensity: 0.2 });
+const wallMat      = new THREE.MeshStandardMaterial({ color:0x1a1d2b, roughness:0.75, metalness:0.35 });
+const metalMat     = new THREE.MeshStandardMaterial({ color:0x252840, roughness:0.25, metalness:0.85 });
+const floorMat     = new THREE.MeshStandardMaterial({ color:0x0e1018, roughness:0.9,  metalness:0.05 });
+const ceilMat      = new THREE.MeshStandardMaterial({ color:0x070910, roughness:0.95, metalness:0.02 });
+const pipeMat      = new THREE.MeshStandardMaterial({ color:0x18263a, roughness:0.4,  metalness:0.9  });
+const hazardMat    = new THREE.MeshStandardMaterial({ color:0xbb3300, roughness:0.5,  emissive:0x3a0a00, emissiveIntensity:0.4 });
+const heartRoomMat = new THREE.MeshStandardMaterial({ color:0x280808, roughness:0.8,  metalness:0.2, emissive:0x0f0000, emissiveIntensity:0.25 });
 
-function wall(scene, objects, x, y, z, w, h, d, mat = wallMat) {
+function box(scene, objects, x, y, z, w, h, d, mat = wallMat) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   mesh.position.set(x, y, z);
   mesh.userData = { isWall: true };
-  scene.add(mesh); objects.push(mesh);
+  scene.add(mesh);
+  objects.push(mesh);
   return mesh;
 }
 
-function crate(scene, objects, x, z, s = 1.2, h = 1.4) {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(s, h, s), metalMat);
-  mesh.position.set(x, h / 2, z);
-  mesh.rotation.y = (Math.random() - 0.5) * 0.4;
-  mesh.userData = { isWall: true };
-  scene.add(mesh); objects.push(mesh);
+function crate(scene, objects, x, z, s = 1.1, h = 1.3) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(s, h, s), metalMat);
+  m.position.set(x, h / 2, z);
+  m.rotation.y = (Math.random() - 0.5) * 0.5;
+  m.userData = { isWall: true };
+  scene.add(m); objects.push(m);
+}
+
+function barricade(scene, objects, x, z, rotY = 0, w = 2.2, h = 1.0, d = 0.18) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), metalMat);
+  m.position.set(x, h / 2, z);
+  m.rotation.y = rotY;
+  m.userData = { isWall: true };
+  scene.add(m); objects.push(m);
 }
 
 export function createMap(scene) {
   const objects = [];
 
   // Floor & Ceiling
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), floorMat);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(150, 120), floorMat);
   floor.rotation.x = -Math.PI / 2; scene.add(floor);
-  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), ceilMat);
-  ceil.rotation.x = Math.PI / 2; ceil.position.y = 5; scene.add(ceil);
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(150, 120), ceilMat);
+  ceil.rotation.x = Math.PI / 2; ceil.position.y = 4.5; scene.add(ceil);
 
-  // ═══════════════════════════════════════════════════════════
-  //  MAP LAYOUT (top-down, Z goes negative toward heart)
-  //
-  //   Z=+45 ┌──────────────────────────┐  Spawn / Control room
-  //         │  [SPAWN ZONE near Z=+32] │
-  //   Z=+15 │  Main Open Area          │
-  //         │                          │
-  //   Z= 0  │  Cross junction          │
-  //         │     Left │ Right wing    │
-  //   Z=-25 │  Approach corridor       │
-  //         │    L door    R door      │
-  //   Z=-30 └──┐                   ┌──┘  Two entrances into heart room
-  //            │  Heart Chamber    │
-  //   Z=-50    └───────────────────┘   Heart at (0,3,-44)
-  // ═══════════════════════════════════════════════════════════
+  // Outer hull
+  box(scene, objects,   0, 2.25,  50, 120, 4.5,  1);
+  box(scene, objects,   0, 2.25, -55, 120, 4.5,  1, heartRoomMat);
+  box(scene, objects, -55, 2.25,   0,   1, 4.5, 106);
+  box(scene, objects,  55, 2.25,   0,   1, 4.5, 106);
 
-  // ── Outer hull ────────────────────────────────────────────
-  wall(scene, objects,   0, 2.5,  50, 110, 5, 1); // north spawn wall
-  wall(scene, objects,   0, 2.5, -52, 110, 5, 1); // south heart wall
-  wall(scene, objects, -52, 2.5,   0,   1, 5,104); // west hull
-  wall(scene, objects,  52, 2.5,   0,   1, 5,104); // east hull
+  // Spawn dividers (gap at centre for mid lane access)
+  box(scene, objects, -14, 2.25, 38, 20, 4.5, 1);
+  box(scene, objects,  14, 2.25, 38, 20, 4.5, 1);
+  for (const [x, z] of [[-8,42],[8,42],[-20,42],[20,42],[-4,34],[4,34]]) crate(scene,objects,x,z);
 
-  // ── Main corridor walls (stop at Z=-25, not blocking heart room) ──
-  wall(scene, objects, -10, 2.5,  10, 1, 5, 50); // left wall  Z=-15..+35
-  wall(scene, objects,  10, 2.5,  10, 1, 5, 50); // right wall Z=-15..+35
+  // A corridor walls (left, X -35..-18)
+  box(scene, objects, -35, 2.25,  7.5,  1, 4.5, 45);
+  box(scene, objects, -18, 2.25,  7.5,  1, 4.5, 45);
+  box(scene, objects, -26, 2.25,  30,  18, 4.5,  1);
+  box(scene, objects, -26, 2.25, -15,  18, 4.5,  1);
 
-  // ── Left & right wings ────────────────────────────────────
-  wall(scene, objects, -10, 2.5,  22, 50, 5, 1); // left wing top
-  wall(scene, objects,  10, 2.5,  22, 50, 5, 1); // right wing top
-  wall(scene, objects, -32, 2.5,  10, 1, 5, 26); // left outer
-  wall(scene, objects,  32, 2.5,  10, 1, 5, 26); // right outer
-  wall(scene, objects, -22, 2.5,  -3, 1, 5, 12); // left inner divider
-  wall(scene, objects,  22, 2.5,  -3, 1, 5, 12); // right inner divider
+  // B corridor walls (right, X +18..+35)
+  box(scene, objects,  35, 2.25,  7.5,  1, 4.5, 45);
+  box(scene, objects,  18, 2.25,  7.5,  1, 4.5, 45);
+  box(scene, objects,  26, 2.25,  30,  18, 4.5,  1);
+  box(scene, objects,  26, 2.25, -15,  18, 4.5,  1);
 
-  // ── Approach corridor to heart (X=-10..+10, Z=-15..-30) ──
-  wall(scene, objects, -10, 2.5, -22, 1, 5, 16); // left approach Z=-14..-30
-  wall(scene, objects,  10, 2.5, -22, 1, 5, 16); // right approach
+  // Mid lane walls (X -9..+9)
+  box(scene, objects, -9, 2.25,  7.5,  1, 4.5, 45);
+  box(scene, objects,  9, 2.25,  7.5,  1, 4.5, 45);
+  box(scene, objects,  0, 2.25,  30,  18, 4.5,  1);
+  box(scene, objects, -4, 2.25, -10,   6, 4.5,  1);
+  box(scene, objects,  4, 2.25, -10,   6, 4.5,  1);
 
-  // ── Cross-junction walls ──────────────────────────────────
-  wall(scene, objects, -4, 2.5,  -2, 4, 5, 1);   // centre left barrier
-  wall(scene, objects,  4, 2.5,  -2, 4, 5, 1);   // centre right barrier
-  wall(scene, objects,  0, 2.5,  10, 8, 5, 1);   // top junction wall
+  // Corridor cover
+  for (const [x, z] of [[-26,-2],[-26,10],[-26,22],[-22,-6],[-30,-6]]) crate(scene,objects,x,z);
+  for (const [x, z] of [[ 26,-2],[ 26,10],[ 26,22],[ 22,-6],[ 30,-6]]) crate(scene,objects,x,z);
+  for (const [x, z] of [[0,5],[0,18],[0,-4],[-4,14],[4,14]]) crate(scene,objects,x,z);
+  barricade(scene, objects, 0, 22);
+  barricade(scene, objects, 0, -5, 0.3);
 
-  // ── Heart Chamber ─────────────────────────────────────────
-  // Two entrances: left (X around -8) and right (X around +8)
-  // Front wall of chamber has TWO GAPS, each 5 units wide
-  //  Left section:  X = -25..-14  (11 units)
-  //  Gap L:         X = -14..-9   (5 units gap — entrance)
-  //  Centre block:  X = -9..+9    (18 units)
-  //  Gap R:         X = +9..+14   (5 units gap — entrance)
-  //  Right section: X = +14..+25  (11 units)
-  wall(scene, objects, -19.5, 2.5, -30, 11, 5, 1, heartRoomMat); // left section
-  wall(scene, objects,   0,   2.5, -30, 18, 5, 1, heartRoomMat); // centre block
-  wall(scene, objects,  19.5, 2.5, -30, 11, 5, 1, heartRoomMat); // right section
+  // Junction area (Z -15..-28)
+  box(scene, objects, -46, 2.25, -21, 18, 4.5,  1);
+  box(scene, objects,  46, 2.25, -21, 18, 4.5,  1);
+  box(scene, objects, -46, 2.25, -14,  1, 4.5, 14);
+  box(scene, objects,  46, 2.25, -14,  1, 4.5, 14);
+  box(scene, objects, -46, 2.25, -27,  1, 4.5, 12);
+  box(scene, objects,  46, 2.25, -27,  1, 4.5, 12);
+  for (const [x, z] of [[-36,-18],[-36,-24],[36,-18],[36,-24],[0,-20],[-14,-22],[14,-22]]) crate(scene,objects,x,z,1.3,1.5);
+  barricade(scene, objects, -20, -18,  0.15);
+  barricade(scene, objects,  20, -18, -0.15);
+
+  // Heart chamber front wall — 3 sections, 3 openings
+  // Left gap X -42..-28 (14u), mid gap X -6..+6 (12u), right gap X +28..+42 (14u)
+  box(scene, objects, -48, 2.25, -28, 12, 4.5,  1, heartRoomMat);
+  box(scene, objects, -17, 2.25, -28, 22, 4.5,  1, heartRoomMat);
+  box(scene, objects,  17, 2.25, -28, 22, 4.5,  1, heartRoomMat);
+  box(scene, objects,  48, 2.25, -28, 12, 4.5,  1, heartRoomMat);
 
   // Chamber side walls
-  wall(scene, objects, -25, 2.5, -41, 1, 5, 22, heartRoomMat); // left side
-  wall(scene, objects,  25, 2.5, -41, 1, 5, 22, heartRoomMat); // right side
+  box(scene, objects, -54, 2.25, -41, 1, 4.5, 26, heartRoomMat);
+  box(scene, objects,  54, 2.25, -41, 1, 4.5, 26, heartRoomMat);
 
-  // Short approach walls funnel players toward the gaps
- wall(scene, objects, -10, 2.5, -27, 1, 5, 6);  // left funnel
- wall(scene, objects,  10, 2.5, -27, 1, 5, 6);  // right funnel
+  // Funnel walls at doorways
+  box(scene, objects, -41, 2.25, -24, 1, 4.5, 8, heartRoomMat);
+  box(scene, objects,  41, 2.25, -24, 1, 4.5, 8, heartRoomMat);
 
-  // ── Control Room (spawn side) ─────────────────────────────
-  wall(scene, objects,   0, 2.5, 38, 20, 5, 1);
-  wall(scene, objects, -10, 2.5, 44,  1, 5, 12);
-  wall(scene, objects,  10, 2.5, 44,  1, 5, 12);
-
-  // ── Engine pillars ────────────────────────────────────────
-  [[-20,-38],[20,-38],[-20,-20],[20,-20],[-35,5],[35,5]].forEach(([x,z]) => {
-    wall(scene, objects, x, 2.5, z, 2, 5, 2, metalMat);
-  });
-
-  // ── Cover crates ──────────────────────────────────────────
-  // Central corridor
-  [[-3,5],[3,5],[-3,-5],[3,-5],[-3,14],[3,14]].forEach(([x,z]) => crate(scene,objects,x,z));
-  // Left wing
-  [[-16,-1],[-22,5],[-16,-12],[-24,-14],[-38,-10],[-38,6],[-28,16]].forEach(([x,z]) => crate(scene,objects,x,z));
-  // Right wing
-  [[16,-1],[22,5],[16,-12],[24,-14],[38,-10],[38,6],[28,16]].forEach(([x,z]) => crate(scene,objects,x,z));
-  // Approach to heart
-  [[-6,-20],[6,-20],[-6,-26],[6,-26]].forEach(([x,z]) => crate(scene,objects,x,z));
   // Heart chamber cover
-  [[-18,-36],[18,-36],[-18,-44],[18,-44],[-8,-40],[8,-40]].forEach(([x,z]) => crate(scene,objects,x,z));
-  // Spawn zone
-  [[-6,34],[6,34],[-14,28],[14,28]].forEach(([x,z]) => crate(scene,objects,x,z));
+  for (const [x, z] of [
+    [-20,-32],[20,-32],[-38,-36],[38,-36],
+    [-12,-40],[12,-40],[-28,-44],[28,-44],
+    [-8,-48],[8,-48],[-20,-50],[20,-50],
+  ]) crate(scene, objects, x, z, 1.4, 1.6);
+  barricade(scene, objects,  0, -34,  0,    4.0, 1.1, 0.2);
+  barricade(scene, objects,-18, -42,  0.4,  2.0, 0.9, 0.2);
+  barricade(scene, objects, 18, -42, -0.4,  2.0, 0.9, 0.2);
 
-  // ── Pipes (visual) ────────────────────────────────────────
-  [[-8,0],[8,0],[-8,-20],[8,-20]].forEach(([x,z]) => {
-    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,40,8), pipeMat);
-    pipe.position.set(x, 4.5, z); scene.add(pipe);
-  });
-
-  // ── Hazard floor strips near heart ────────────────────────
-  for (let i = -3; i <= 3; i++) {
-    const strip = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 8), hazardMat);
-    strip.rotation.x = -Math.PI / 2;
-    strip.position.set(i * 1.5, 0.01, -38); scene.add(strip);
+  // Biomass pillars
+  for (const [x, z] of [[-18,-36],[18,-36],[-18,-48],[18,-48]]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 4.5, 8), heartRoomMat);
+    p.position.set(x, 2.25, z);
+    p.userData = { isWall: true };
+    scene.add(p); objects.push(p);
   }
 
-  // ── Floor grid lines (visual) ─────────────────────────────
-  const gridMat = new THREE.MeshBasicMaterial({ color: 0x1a2030 });
-  for (let i = -50; i <= 50; i += 10) {
-    const h = new THREE.Mesh(new THREE.PlaneGeometry(100, 0.04), gridMat);
+  // Engine pillars
+  for (const [x, z] of [[-26,0],[26,0],[-26,-8],[26,-8]]) {
+    box(scene, objects, x, 2.25, z, 1.8, 4.5, 1.8, metalMat);
+  }
+
+  // Pipes (visual)
+  for (const [x, z] of [[-8,5],[8,5],[-8,-18],[8,-18],[-8,-38],[8,-38]]) {
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 50, 8), pipeMat);
+    pipe.position.set(x, 4.2, z); scene.add(pipe);
+  }
+
+  // Hazard strips near heart
+  for (let i = -5; i <= 5; i++) {
+    const s = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 10), hazardMat);
+    s.rotation.x = -Math.PI / 2; s.position.set(i * 2, 0.01, -43); scene.add(s);
+  }
+
+  // Floor grid
+  const gridMat = new THREE.MeshBasicMaterial({ color:0x161b28 });
+  for (let i = -55; i <= 55; i += 8) {
+    const h = new THREE.Mesh(new THREE.PlaneGeometry(110, 0.04), gridMat);
     h.rotation.x = -Math.PI / 2; h.position.set(0, 0.005, i); scene.add(h);
-    const v = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 100), gridMat);
+    const v = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 110), gridMat);
     v.rotation.x = -Math.PI / 2; v.position.set(i, 0.005, 0); scene.add(v);
   }
+
+  // Zone lights
+  { const l = new THREE.PointLight(0x0088ff, 0.8, 20); l.position.set(-26,3,20); scene.add(l); }
+  { const l = new THREE.PointLight(0x0088ff, 0.8, 20); l.position.set(26,3,20); scene.add(l); }
+  { const l = new THREE.PointLight(0xff2200, 1.5, 30); l.position.set(0,3.5,-44); scene.add(l); }
 
   return objects;
 }
 
-// Exported positions used by GameEngine
-export const HEART_POSITION = new THREE.Vector3(0, 3, -44);
-export const PLANT_POSITION = new THREE.Vector3(0, 0, -39); // in front of heart, accessible
+export const HEART_POSITION = new THREE.Vector3(0, 3, -46);
+export const PLANT_POSITION = new THREE.Vector3(0, 0, -38);

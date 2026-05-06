@@ -154,12 +154,15 @@ export function createEnemies(scene, count, options = {}) {
     const cfg  = ENEMY_CONFIGS[type];
     const mesh = buildBody(type, cfg);
 
-    const angle  = (Math.PI*2/count)*i + (Math.random()-0.5)*1.2;
-    const spread = 8 + Math.random()*10;
-    const baseZ  = options.side === 'alien' ? 20 : -26;
+    const angle  = (Math.PI * 2 / count) * i + (Math.random() - 0.5) * 0.8;
+    // Heart chamber spans X:-24..+24, Z:-30..-52 — keep enemies safely inside
+    const spreadX = 8 + Math.random() * 10;
+    const spreadZ = 4 + Math.random() * 8;
+    const baseZ   = options.side === 'alien' ? -42 : 32; // aliens near heart, humans near spawn
     mesh.position.set(
-      Math.cos(angle)*spread*0.7, 0,
-      baseZ + Math.sin(angle)*spread*0.5
+      Math.cos(angle) * spreadX * 0.6,
+      0,
+      baseZ + Math.sin(angle) * spreadZ * 0.4
     );
     scene.add(mesh);
 

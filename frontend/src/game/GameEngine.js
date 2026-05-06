@@ -88,6 +88,9 @@ export class GameEngine {
     this.raycaster = new THREE.Raycaster();
     this.sensitivity = 0.002;
     
+    // Rebindable keybinds — loaded once, refreshed via reloadKeybinds()
+    this.keybinds = this.loadKeybinds();
+    
     // HUD throttle: only push React state updates ~15x/s instead of 60x/s
     this._hudTimer = 0;
     this._hudInterval = 1 / 15;
@@ -136,7 +139,9 @@ export class GameEngine {
     this.setupLighting();
     this.mapObjects = createMap(this.scene);
     this.createHeart();
-    this.enemies = createEnemies(this.scene, 5);
+    this.enemies = createEnemies(this.scene, 5, { side: 'alien' });
+    this.allies  = [];
+    this.createAllyBots();
     
     // Initialize weapon system
     this.weaponSystem = new WeaponSystem(this.scene, this.camera, this.operator);
@@ -209,18 +214,26 @@ export class GameEngine {
     });
     
     const heartMesh = new THREE.Mesh(heartGeo, heartMat);
-    heartMesh.position.set(0, 3, -20);
+    heartMesh.position.copy(HEART_POSITION); // use the canonical position from Map.js
     heartMesh.userData = { type: 'heart' };
     heartGroup.add(heartMesh);
     this.heartMesh = heartMesh;
     
-    // Tendrils
+    // Tendrils — all anchored at HEART_POSITION
     for (let i = 0; i < 10; i++) {
       const angle = (Math.PI * 2 / 10) * i;
       const curve = new THREE.CatmullRomCurve3([
         new THREE.Vector3(HEART_POSITION.x, HEART_POSITION.y, HEART_POSITION.z),
-        new THREE.Vector3(Math.cos(angle) * 5, 2 + Math.random() * 3, -20 + Math.sin(angle) * 5),
-        new THREE.Vector3(Math.cos(angle) * 12, 0.5 + Math.random() * 2, -20 + Math.sin(angle) * 12),
+        new THREE.Vector3(
+          HEART_POSITION.x + Math.cos(angle) * 5,
+          2 + Math.random() * 3,
+          HEART_POSITION.z + Math.sin(angle) * 5
+        ),
+        new THREE.Vector3(
+          HEART_POSITION.x + Math.cos(angle) * 12,
+          0.5 + Math.random() * 2,
+          HEART_POSITION.z + Math.sin(angle) * 12
+        ),
       ]);
       
       const tubeGeo = new THREE.TubeGeometry(curve, 20, 0.2 + Math.random() * 0.4, 8, false);
@@ -256,44 +269,39 @@ export class GameEngine {
     this._onKeyDown = (e) => {
       if (e.code === 'Escape') {
         if (document.pointerLockElement) document.exitPointerLock();
-        // GameView listens to pointerlockchange and handles pause itself
         return;
       }
       if (!this.isLocked) return;
-      switch (e.code) {
-        case 'KeyW': this.player.moveForward = true; break;
-        case 'KeyS': this.player.moveBackward = true; break;
-        case 'KeyA': this.player.moveLeft = true; break;
-        case 'KeyD': this.player.moveRight = true; break;
-        case 'ShiftLeft': this.player.isSprinting = true; break;
-        case 'KeyC':
-        case 'ControlLeft':
-          this.player.isCrouching = !this.player.isCrouching;
-          this.player.targetCrouchHeight = this.player.isCrouching ? 1.0 : 1.6;
-          break;
-        case 'KeyQ': this.player.isLeaning = -1; break;
-        case 'KeyE': this.player.isLeaning = 1; break;
-        case 'KeyR': this.reload(); break;
-        case 'Digit1': this.weaponSystem?.switchWeapon(0); break;
-        case 'Digit2': this.weaponSystem?.switchWeapon(1); break;
-        case 'Digit3': this.weaponSystem?.switchWeapon(2); break;
-        case 'KeyF': this.useAbility(); break;      // F = operator ability
-        case 'KeyG': this.plantKey = true; break;    // G = plant device (hold)
-        case 'KeyQ': this.player.isLeaning = -1; break;
-        default: break;
+      const kb = this.keybinds;
+      if (e.code === kb.moveForward)  { this.player.moveForward  = true; return; }
+      if (e.code === kb.moveBackward) { this.player.moveBackward = true; return; }
+      if (e.code === kb.moveLeft)     { this.player.moveLeft     = true; return; }
+      if (e.code === kb.moveRight)    { this.player.moveRight    = true; return; }
+      if (e.code === kb.sprint)       { this.player.isSprinting  = true; return; }
+      if (e.code === kb.crouch || e.code === 'ControlLeft') {
+        this.player.isCrouching = !this.player.isCrouching;
+        this.player.targetCrouchHeight = this.player.isCrouching ? 1.0 : 1.6;
+        return;
       }
+      if (e.code === kb.leanLeft)  { this.player.isLeaning = -1; return; }
+      if (e.code === kb.leanRight) { this.player.isLeaning =  1; return; }
+      if (e.code === kb.reload)    { this.reload();               return; }
+      if (e.code === kb.ability)   { this.useAbility();           return; }
+      if (e.code === kb.plant)     { this.plantKey = true;        return; }
+      if (e.code === kb.weapon1)   { this.weaponSystem?.switchWeapon(0); return; }
+      if (e.code === kb.weapon2)   { this.weaponSystem?.switchWeapon(1); return; }
+      if (e.code === kb.weapon3)   { this.weaponSystem?.switchWeapon(2); return; }
     };
     this._onKeyUp = (e) => {
-      switch (e.code) {
-        case 'KeyW': this.player.moveForward = false; break;
-        case 'KeyS': this.player.moveBackward = false; break;
-        case 'KeyA': this.player.moveLeft = false; break;
-        case 'KeyD': this.player.moveRight = false; break;
-        case 'ShiftLeft': this.player.isSprinting = false; break;
-        case 'KeyG': this.plantKey = false; this.isPlanting = false; break;   // release plant
-        case 'KeyE': if (this.player.isLeaning === 1) this.player.isLeaning = 0; break;
-        default: break;
-      }
+      const kb = this.keybinds;
+      if (e.code === kb.moveForward)  { this.player.moveForward  = false; return; }
+      if (e.code === kb.moveBackward) { this.player.moveBackward = false; return; }
+      if (e.code === kb.moveLeft)     { this.player.moveLeft     = false; return; }
+      if (e.code === kb.moveRight)    { this.player.moveRight    = false; return; }
+      if (e.code === kb.sprint)       { this.player.isSprinting  = false; return; }
+      if (e.code === kb.plant)        { this.plantKey = false; this.isPlanting = false; return; }
+      if (e.code === kb.leanLeft  && this.player.isLeaning === -1) { this.player.isLeaning = 0; return; }
+      if (e.code === kb.leanRight && this.player.isLeaning ===  1) { this.player.isLeaning = 0; return; }
     };
     this._onMouseDown = (e) => {
       if (!this.isLocked || !this.player.isAlive) return;
@@ -697,8 +705,8 @@ export class GameEngine {
         }
       }
 
-      enemy.mesh.position.y = (enemy.type === 'crawler' || enemy.type === 'lurker' ? 0.8 : 1.5)
-        + Math.sin(currentTime * 3 + enemy.id) * 0.12;
+      // Keep enemies on the ground with a subtle idle float
+      enemy.mesh.position.y = Math.sin(currentTime * 2 + enemy.id) * 0.06;
     }
 
     // Update all projectiles and apply damage
@@ -818,14 +826,17 @@ export class GameEngine {
     this.player.health = this.player.maxHealth;
     this.player.armor = this.player.maxArmor;
     this.player.isAlive = true;
-    this.player.position.set(0, 1.6, 0);
     this.abilityCharge = 100;
     
     // Reset enemies
-    for (const enemy of this.enemies) {
-      this.scene.remove(enemy.mesh);
-    }
-    this.enemies = createEnemies(this.scene, 5);
+    for (const enemy of this.enemies) this.scene.remove(enemy.mesh);
+    this.enemies = createEnemies(this.scene, 5, { side: 'alien' });
+
+    // Reset ally bots
+    for (const ally of this.allies) this.scene.remove(ally.mesh);
+    this.allies = [];
+    this.createAllyBots();
+
     this.gameState.wave = 1;
     this.plantProgress = 0;
     this.isPlanting = false;
@@ -833,19 +844,143 @@ export class GameEngine {
     this.deviceTimer = 0;
     if (this.plantMesh) { this.scene.remove(this.plantMesh); this.plantMesh = null; }
     this.allProjectiles = [];
-    this.player.position.set(0, 1.6, 32);
+    
+    const spawnZ = this.team === 'alien' ? -36 : 32;
+    this.player.position.set(0, 1.6, spawnZ);
     
     // Reload weapons
     if (this.weaponSystem) this.weaponSystem.reloadAll();
 
-    // warmup resets via startRound() call below
-    this.gameState.warmupActive   = false;
-    this.gameState.warmupTimeLeft = 0;
-    this.gameState.roundActive    = false;
-    this.gameState.roundTimeLeft  = this.gameState.roundTime;
-    this.updateHUD();
+    // startRound handles warmup
+    this.startRound();
   }
   
+  // ── Keybinds ──────────────────────────────────────────────────────────────
+  static get DEFAULT_KEYBINDS() {
+    return {
+      moveForward:  'KeyW',
+      moveBackward: 'KeyS',
+      moveLeft:     'KeyA',
+      moveRight:    'KeyD',
+      sprint:       'ShiftLeft',
+      crouch:       'KeyC',
+      leanLeft:     'KeyQ',
+      leanRight:    'KeyE',
+      reload:       'KeyR',
+      ability:      'KeyF',
+      plant:        'KeyG',
+      weapon1:      'Digit1',
+      weapon2:      'Digit2',
+      weapon3:      'Digit3',
+    };
+  }
+
+  loadKeybinds() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('covenantKeyBindings') || '{}');
+      return { ...GameEngine.DEFAULT_KEYBINDS, ...saved };
+    } catch { return { ...GameEngine.DEFAULT_KEYBINDS }; }
+  }
+
+  // Call this from GameView after the settings panel closes so new binds take effect immediately
+  reloadKeybinds() { this.keybinds = this.loadKeybinds(); }
+
+  // ── Allied bots ───────────────────────────────────────────────────────────
+  createAllyBots() {
+    const isAlienTeam = this.team === 'alien';
+    const bodyColor   = isAlienTeam ? 0xaa1040 : 0x1a4a8a;
+    const helmetColor = isAlienTeam ? 0x550020 : 0x0a2244;
+    const spawnZ      = isAlienTeam ? -40 : 32;
+
+    for (let i = 0; i < 4; i++) {
+      const g = new THREE.Group();
+      const bMat = new THREE.MeshStandardMaterial({ color: bodyColor,   roughness: 0.6, metalness: 0.3 });
+      const hMat = new THREE.MeshStandardMaterial({ color: helmetColor, roughness: 0.5, metalness: 0.6 });
+
+      // Torso
+      g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.52, 0.26), bMat),
+        { position: new THREE.Vector3(0, 0.96, 0) }));
+      // Head / helmet
+      g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), hMat),
+        { position: new THREE.Vector3(0, 1.45, 0) }));
+      // Arms
+      for (const s of [-1, 1]) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.42, 0.11), bMat);
+        arm.position.set(s * 0.27, 0.88, 0);
+        g.add(arm);
+      }
+      // Legs
+      for (const s of [-1, 1]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.48, 0.16), bMat);
+        leg.position.set(s * 0.1, 0.42, 0);
+        g.add(leg);
+      }
+
+      // Stagger spawn so they don't overlap
+      const angle = (Math.PI * 2 / 4) * i;
+      g.position.set(Math.cos(angle) * 3, 0, spawnZ + Math.sin(angle) * 3);
+      this.scene.add(g);
+
+      this.allies.push({
+        id: i, mesh: g,
+        health: 100, maxHealth: 100,
+        alive: true,
+        lastShot: 0,
+      });
+    }
+  }
+
+  updateAllyAI(delta) {
+    if (this.gameState.warmupActive || this.gameState.gameOver) return;
+    const now = this.clock.getElapsedTime();
+
+    for (const ally of this.allies) {
+      if (!ally.alive) continue;
+
+      // ── Find nearest living enemy ────────────────────────────────────────
+      let nearest = null, nearestDist = Infinity;
+      for (const e of this.enemies) {
+        if (!e.alive) continue;
+        const d = ally.mesh.position.distanceTo(e.mesh.position);
+        if (d < nearestDist) { nearestDist = d; nearest = e; }
+      }
+
+      if (nearest && nearestDist < 22) {
+        // ── Engage: face enemy, shoot every ~1.8s ───────────────────────────
+        ally.mesh.lookAt(nearest.mesh.position.clone().setY(ally.mesh.position.y));
+        if (now - ally.lastShot > 1.8) {
+          ally.lastShot = now;
+          nearest.health -= 22 + Math.random() * 10;
+          this.createHitEffect(nearest.mesh.position.clone().setY(1.2), 0xff4400);
+          if (nearest.health <= 0) {
+            nearest.alive = false;
+            nearest.mesh.visible = false;
+            this.sounds.play('kill');
+            this.player.kills++;
+          }
+        }
+      } else {
+        // ── Follow player in a loose formation ───────────────────────────────
+        const formationOffset = new THREE.Vector3(
+          Math.cos((Math.PI * 2 / 4) * ally.id) * 2.5,
+          0,
+          Math.sin((Math.PI * 2 / 4) * ally.id) * 2.5
+        );
+        const target  = this.player.position.clone().add(formationOffset);
+        const distToTarget = ally.mesh.position.distanceTo(target);
+
+        if (distToTarget > 1.5) {
+          const moveDir = new THREE.Vector3().subVectors(target, ally.mesh.position).normalize();
+          const newPos  = ally.mesh.position.clone().addScaledVector(moveDir, 4.5 * delta);
+          newPos.y = 0;
+          if (!this.checkCollision(newPos, 0.3)) ally.mesh.position.copy(newPos);
+          ally.mesh.lookAt(target.clone().setY(ally.mesh.position.y));
+        }
+      }
+      ally.mesh.position.y = 0; // keep on ground
+    }
+  }
+
   updateAbility(delta) {
     if (this.abilityCharge < 100 && !this.abilityActive) {
       this.abilityCharge = Math.min(100, this.abilityCharge + delta * 5); // Recharge over 20s
@@ -854,7 +989,18 @@ export class GameEngine {
   
 
   updatePlant(delta) {
-    if (!this.player.isAlive || this.gameState.gameOver || this.devicePlanted) return;
+    if (!this.player.isAlive || this.gameState.gameOver) return;
+
+    // ── Device countdown — must tick even after planting ──────────────────────
+    if (this.devicePlanted) {
+      this.deviceTimer -= delta;
+      if (this.deviceTimer <= 0) {
+        this.deviceTimer = 0;
+        this.gameState.heartHealth = 0;
+        this.winRound('humans');
+      }
+      return; // don't re-enter plant logic once planted
+    }
 
     // Check if near plant point
     const distToPlant = this.player.position.distanceTo(
@@ -876,15 +1022,6 @@ export class GameEngine {
     } else {
       this.isPlanting = false;
       if (this.plantProgress > 0 && !this.plantKey) this.plantProgress = Math.max(0, this.plantProgress - delta * 30);
-    }
-
-    // Countdown device
-    if (this.devicePlanted) {
-      this.deviceTimer -= delta;
-      if (this.deviceTimer <= 0) {
-        this.gameState.heartHealth = 0;
-        this.winRound('humans');
-      }
     }
   }
 
@@ -951,6 +1088,7 @@ export class GameEngine {
     if (this.isLocked && !this.gameState.gameOver) {
       this.updateMovement(delta);
       this.updateEnemyAI(delta);
+      this.updateAllyAI(delta);
       this.updateHeart(delta);
       this.updateDamageIndicators(delta);
       this.updateAbility(delta);
@@ -1056,14 +1194,18 @@ export class GameEngine {
     this.hitEffects = [];
     
     for (const enemy of this.enemies) this.scene.remove(enemy.mesh);
-    this.enemies = createEnemies(this.scene, 5);
+    this.enemies = createEnemies(this.scene, 5, { side: 'alien' });
+    for (const ally of this.allies) this.scene.remove(ally.mesh);
+    this.allies = [];
+    this.createAllyBots();
     this.plantProgress = 0;
     this.isPlanting = false;
     this.devicePlanted = false;
     this.deviceTimer = 0;
     if (this.plantMesh) { this.scene.remove(this.plantMesh); this.plantMesh = null; }
     this.allProjectiles = [];
-    this.player.position.set(0, 1.6, 32);
+    const spawnZ = this.team === 'alien' ? -36 : 32;
+    this.player.position.set(0, 1.6, spawnZ);
     if (this.weaponSystem) this.weaponSystem.reloadAll();
     this.startRound();
     this.updateHUD();
