@@ -129,9 +129,28 @@ export class GameEngine {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = false; // shadows off = major FPS gain
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    // FIX 1: Increased exposure from 0.8 to 1.4 for much brighter scene
     this.renderer.toneMappingExposure = 1.4;
+    // FIX: outputColorSpace constant only exists in Three.js r152+.
+    // In r137–r151 the property exists but THREE.SRGBColorSpace is undefined,
+    // so setting it directly would silently leave it as linear, causing
+    // ACESFilmicToneMapping to output a near-black scene.
+    // Using the string literal 'srgb' works across r137+ without needing the constant.
+    if ('outputColorSpace' in this.renderer) {
+      this.renderer.outputColorSpace = 'srgb';             // r137+
+    } else {
+      this.renderer.outputEncoding = THREE.sRGBEncoding;   // r136 and older
+    }
     this.container.appendChild(this.renderer.domElement);
+    // FIX: Force the canvas to fill its container correctly.
+    // Without explicit CSS the canvas is inline-block, which can create
+    // sub-pixel gaps and cause GPU compositing layers to occlude it (black screen).
+    const cv = this.renderer.domElement;
+    cv.style.display  = 'block';
+    cv.style.position = 'absolute';
+    cv.style.top      = '0';
+    cv.style.left     = '0';
+    // FIX: Camera must be added to the scene so its children (weapon model) render.
+    this.scene.add(this.camera);
     
     // Set spawn position based on team
     if (this.team === 'alien') {
@@ -890,6 +909,25 @@ export class GameEngine {
   // Call this from GameView after the settings panel closes so new binds take effect immediately
   reloadKeybinds() { this.keybinds = this.loadKeybinds(); }
 
+  // Called from GameView's PauseMenu whenever a setting changes
+  updateSettings(s) {
+    if (!s) return;
+    if (s.sensitivity !== undefined) {
+      this.sensitivity = (s.sensitivity / 100) * 0.004;
+    }
+    if (s.fov !== undefined) {
+      this.camera.fov = s.fov;
+      this.camera.updateProjectionMatrix();
+    }
+    if (s.volume !== undefined && this.sounds) {
+      this.sounds.setVolume(s.volume / 100);
+    }
+    if (s.brightness !== undefined) {
+      // Map 10-100 → 0.5-2.5 exposure
+      this.renderer.toneMappingExposure = 0.5 + (s.brightness / 100) * 2.0;
+    }
+  }
+
   // ── Allied bots ───────────────────────────────────────────────────────────
   createAllyBots() {
     const isAlienTeam = this.team === 'alien';
@@ -1016,6 +1054,7 @@ export class GameEngine {
     const activeSite = nearA ? this.plantSiteA : (nearB ? this.plantSiteB : null);
     const activeLetter = nearA ? 'A' : (nearB ? 'B' : null);
 
+    const anyPlanted = this.plantSiteA.planted || this.plantSiteB.planted;
     if (this.plantKey && activeSite && !anyPlanted) {
       this.isPlanting = true;
       this.activeSite = activeLetter;

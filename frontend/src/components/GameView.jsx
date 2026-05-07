@@ -354,7 +354,7 @@ export default function GameView({ mode, roomId, playerName, operatorId, team, o
         data-testid="game-canvas-container" />
 
       {!isLocked && !isPaused && !gameState.gameOver && (
-        <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80 backdrop-blur-sm cursor-crosshair"
+        <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80 cursor-crosshair"
           onClick={requestLock}>
           <div className="text-center max-w-lg" onClick={e => e.stopPropagation()}>
             <div className="w-16 h-16 mx-auto border-2 border-[#00E5FF] rounded-full flex items-center justify-center mb-6 animate-pulse">
