@@ -14,9 +14,55 @@ function loadSettings() {
 function saveSettings(s) { try { localStorage.setItem('covenantSettings', JSON.stringify(s)); } catch {} }
 
 // ── Pause / Settings panel ───────────────────────────────────────────────────
+const KEYBIND_ACTIONS = [
+  ['moveForward','Move Forward'],['moveBackward','Move Backward'],
+  ['moveLeft','Move Left'],['moveRight','Move Right'],
+  ['sprint','Sprint'],['crouch','Crouch'],
+  ['leanLeft','Lean Left'],['leanRight','Lean Right'],
+  ['reload','Reload'],['ability','Ability [F]'],
+  ['plant','Plant Device'],
+  ['weapon1','Weapon 1'],['weapon2','Weapon 2'],['weapon3','Weapon 3'],
+];
+const DEFAULT_KB = {
+  moveForward:'KeyW', moveBackward:'KeyS', moveLeft:'KeyA', moveRight:'KeyD',
+  sprint:'ShiftLeft', crouch:'KeyC', leanLeft:'KeyQ', leanRight:'KeyE',
+  reload:'KeyR', ability:'KeyF', plant:'KeyG',
+  weapon1:'Digit1', weapon2:'Digit2', weapon3:'Digit3',
+};
+function loadKB() {
+  try { return { ...DEFAULT_KB, ...JSON.parse(localStorage.getItem('covenantKeyBindings')||'{}') }; }
+  catch { return { ...DEFAULT_KB }; }
+}
+function codeLabel(c) {
+  if (!c) return 'UNBOUND';
+  if (c.startsWith('Key'))   return c.replace('Key','');
+  if (c.startsWith('Digit')) return c.replace('Digit','');
+  return {ShiftLeft:'L-SHIFT',ShiftRight:'R-SHIFT',ControlLeft:'L-CTRL',Space:'SPACE'}[c] || c;
+}
+
 function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
   const [tab, setTab] = useState('controls');
   const [settings, setSettings] = useState(loadSettings);
+  const [keybinds, setKeybinds] = useState(loadKB);
+  const [rebinding, setRebinding] = useState(null);
+  const [conflict,  setConflict]  = useState(null);
+
+  useEffect(() => {
+    if (!rebinding) return;
+    const handler = (e) => {
+      e.preventDefault();
+      if (e.code === 'Escape') { setRebinding(null); setConflict(null); return; }
+      const dup = Object.entries(keybinds).find(([a,c]) => c === e.code && a !== rebinding);
+      if (dup) { setConflict({ action: rebinding, code: e.code, takenBy: dup[0] }); return; }
+      const next = { ...keybinds, [rebinding]: e.code };
+      setKeybinds(next);
+      localStorage.setItem('covenantKeyBindings', JSON.stringify(next));
+      if (engineRef?.current?.reloadKeybinds) engineRef.current.reloadKeybinds();
+      setRebinding(null);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [rebinding, keybinds, engineRef]);
 
   const update = (key, val) => {
     const next = { ...settings, [key]: val };
@@ -26,9 +72,9 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
   };
 
   const tabs = [
-    { id: 'controls', label: 'Controls', icon: Gamepad2 },
-    { id: 'audio',    label: 'Audio',    icon: Volume2  },
-    { id: 'video',    label: 'Video',    icon: Monitor  },
+    { id:'controls', label:'Controls', icon:Gamepad2 },
+    { id:'audio',    label:'Audio',    icon:Volume2  },
+    { id:'video',    label:'Video',    icon:Monitor  },
   ];
 
   const Slider = ({ label, k, min, max, unit='%' }) => (
@@ -56,21 +102,47 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
     </div>
   );
 
-  const bindings = [
-    ['MOVE', 'WASD'], ['SPRINT', 'SHIFT'], ['CROUCH', 'C / CTRL'],
-    ['LEAN L / R',      'Q / E'], ['SHOOT', 'LMB'], ['ADS', 'RMB'],
-    ['RELOAD', 'R'], ['ABILITY', 'F'], ['SWITCH WEAPON', '1 2 3 / SCROLL'],
-    ['PAUSE / SETTINGS',  'ESC or ⚙'],
-  ];
-
   return (
     <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md">
-      <div className="w-full max-w-xl bg-[#0a0b10] border border-white/10 shadow-2xl" onClick={e => e.stopPropagation()}>
 
+      {/* Rebind overlay */}
+      {rebinding && !conflict && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
+          <div className="bg-[#0a0c14] border border-[#00E5FF] px-8 py-6 text-center" style={{boxShadow:'0 0 30px rgba(0,229,255,0.2)'}}>
+            <p className="text-xs font-mono text-[#4B5365] uppercase tracking-widest mb-2">REBINDING</p>
+            <p className="text-lg font-['Rajdhani'] font-bold text-white uppercase">{KEYBIND_ACTIONS.find(([a])=>a===rebinding)?.[1]}</p>
+            <p className="text-sm font-mono text-[#00E5FF] mt-3 animate-pulse">Press any key…</p>
+            <p className="text-xs font-mono text-[#4B5365] mt-1">ESC to cancel</p>
+          </div>
+        </div>
+      )}
+      {conflict && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/80">
+          <div className="bg-[#0a0c14] border border-[#FFB800] px-8 py-6 text-center max-w-xs">
+            <p className="text-xs font-mono text-[#FFB800] uppercase mb-2">KEY CONFLICT</p>
+            <p className="text-xs font-mono text-[#8B93A6] mb-4">
+              <span className="text-white">{codeLabel(conflict.code)}</span> is already used by{' '}
+              <span className="text-white">{KEYBIND_ACTIONS.find(([a])=>a===conflict.takenBy)?.[1]}</span>
+            </p>
+            <div className="flex gap-2 justify-center">
+              <button onClick={() => {
+                const next = { ...keybinds, [conflict.takenBy]:'', [conflict.action]: conflict.code };
+                setKeybinds(next);
+                localStorage.setItem('covenantKeyBindings', JSON.stringify(next));
+                if (engineRef?.current?.reloadKeybinds) engineRef.current.reloadKeybinds();
+                setRebinding(null); setConflict(null);
+              }} className="px-4 py-1.5 border border-[#FFB800] text-[#FFB800] text-xs font-mono uppercase hover:bg-[#FFB800]/10">OVERRIDE</button>
+              <button onClick={() => {setConflict(null);setRebinding(null);}} className="px-4 py-1.5 border border-white/20 text-white text-xs font-mono uppercase hover:bg-white/5">CANCEL</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="w-full max-w-xl bg-[#0a0b10] border border-white/10 shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div>
             <h2 className="text-xl font-['Rajdhani'] font-bold text-white uppercase tracking-widest">PAUSED — SYSTEMS CONFIG</h2>
-            <p className="text-xs font-mono text-[#4B5365]">Settings saved automatically</p>
+            <p className="text-xs font-mono text-[#4B5365]">Settings saved automatically • Click a key to rebind</p>
           </div>
           <button onClick={onResume} className="text-[#8B93A6] hover:text-[#00E5FF] transition-colors"><X size={20} /></button>
         </div>
@@ -79,7 +151,7 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
           {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs font-mono uppercase tracking-wider transition-all border ${
-                tab === t.id ? 'border-[#00E5FF] text-[#00E5FF] bg-[#00E5FF]/5' : 'border-white/10 text-[#8B93A6] hover:border-white/30'
+                tab===t.id ? 'border-[#00E5FF] text-[#00E5FF] bg-[#00E5FF]/5' : 'border-white/10 text-[#8B93A6] hover:border-white/30'
               }`}>
               <t.icon size={12} />{t.label}
             </button>
@@ -89,27 +161,35 @@ function PauseMenu({ onResume, onRestart, onMenu, engineRef }) {
         <div className="px-6 py-3 max-h-64 overflow-y-auto">
           {tab === 'controls' && (
             <div>
-              {bindings.map(([a,k]) => (
-                <div key={a} className="flex justify-between items-center py-1.5 border-b border-white/5">
-                  <span className="text-xs font-mono text-[#8B93A6]">{a}</span>
-                  <span className="text-xs font-['Rajdhani'] font-semibold text-[#00E5FF] bg-[#12141C] px-2 py-0.5 border border-white/10">{k}</span>
-                </div>
-              ))}
               <Slider label="MOUSE SENSITIVITY" k="sensitivity" min={5} max={100} unit="" />
+              <div className="mt-2 border border-white/10">
+                {KEYBIND_ACTIONS.map(([action, label]) => {
+                  const isReb = rebinding === action;
+                  return (
+                    <div key={action} className={`flex justify-between items-center px-3 py-2 border-b border-white/5 last:border-0 ${isReb ? 'bg-[#00E5FF]/5' : 'hover:bg-white/2'}`}>
+                      <span className="text-xs font-mono text-[#8B93A6]">{label}</span>
+                      <button onClick={() => { setRebinding(action); setConflict(null); }}
+                        className={`min-w-[64px] text-center text-xs font-['Rajdhani'] font-bold px-2 py-0.5 border transition-all ${
+                          isReb ? 'border-[#00E5FF] text-[#00E5FF] animate-pulse'
+                          : !keybinds[action] ? 'border-[#FF2A2A]/50 text-[#FF2A2A]'
+                          : 'border-white/15 text-[#00E5FF] bg-[#12141C] hover:border-[#00E5FF]/50'
+                        }`}>
+                        {isReb ? '...' : codeLabel(keybinds[action])}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
-          {tab === 'audio' && (
-            <div>
-              <Slider label="MASTER VOLUME" k="volume" min={0} max={100} />
-            </div>
-          )}
+          {tab === 'audio' && <Slider label="MASTER VOLUME" k="volume" min={0} max={100} />}
           {tab === 'video' && (
             <div>
               <Slider label="BRIGHTNESS" k="brightness" min={10} max={100} />
               <Slider label="FIELD OF VIEW" k="fov" min={60} max={110} unit="°" />
-              <Toggle label="SHADOWS" k="shadows" desc="Disable for better performance." />
-              <Toggle label="ANTIALIASING" k="antialiasing" desc="Smooths edges. Requires restart." />
-              <Toggle label="SHOW FPS COUNTER" k="showFPS" desc="Display FPS in corner." />
+              <Toggle label="SHADOWS"           k="shadows"      desc="Disable for better performance." />
+              <Toggle label="ANTIALIASING"      k="antialiasing" desc="Smooths edges." />
+              <Toggle label="SHOW FPS COUNTER"  k="showFPS"      desc="Display FPS in corner." />
             </div>
           )}
         </div>
@@ -183,12 +263,29 @@ export default function GameView({ mode, roomId, playerName, operatorId, team, o
   }, []);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
     gameOverRef.current = false;
-    const operator = operatorId ? getOperator(operatorId) : getOperator('vanguard');
-    engineRef.current = new GameEngine(containerRef.current, handleStateUpdate, { mode, operator, team: team || 'human' });
-    if (mode === 'multiplayer' && roomId) connectWebSocket();
+
+    // Small defer so React finishes painting the container div before Three.js
+    // appends the canvas — avoids the blank screen on first mount in some builds.
+    const timerId = setTimeout(() => {
+      if (!containerRef.current) return; // unmounted while waiting
+      try {
+        const operator = operatorId ? getOperator(operatorId) : getOperator('vanguard');
+        engineRef.current = new GameEngine(
+          containerRef.current,
+          handleStateUpdate,
+          { mode, operator, team: team || 'human' }
+        );
+        if (mode === 'multiplayer' && roomId) connectWebSocket();
+      } catch (err) {
+        console.error('[GameView] GameEngine init failed:', err);
+      }
+    }, 0);
+
     return () => {
+      clearTimeout(timerId);
       if (engineRef.current) { engineRef.current.dispose(); engineRef.current = null; }
       if (wsRef.current) wsRef.current.close();
     };
@@ -256,7 +353,6 @@ export default function GameView({ mode, roomId, playerName, operatorId, team, o
         className={`absolute inset-0 ${isPaused ? "pointer-events-none" : ""}`}
         data-testid="game-canvas-container" />
 
-      {/* Deploy overlay — ONLY when not locked AND not paused AND not game over */}
       {!isLocked && !isPaused && !gameState.gameOver && (
         <div className="absolute inset-0 flex items-center justify-center z-50 bg-black/80 backdrop-blur-sm cursor-crosshair"
           onClick={requestLock}>
@@ -268,23 +364,23 @@ export default function GameView({ mode, roomId, playerName, operatorId, team, o
               CLICK ANYWHERE TO DEPLOY
             </h2>
             <p className="text-sm font-mono text-[#8B93A6] mb-6">
-              Press <span className="text-[#00E5FF]">ESC</span> ou <span className="text-[#00E5FF]">⚙</span> no HUD para pausar / settings
+              Press <span className="text-[#00E5FF]">ESC</span> or <span className="text-[#00E5FF]">⚙</span> in the HUD to pause / settings
             </p>
             <div className="grid grid-cols-2 gap-4 text-xs font-mono text-[#4B5365] bg-black/40 border border-white/10 p-4 mb-6">
               <div className="text-left space-y-1">
                 <p><span className="text-[#00E5FF]">WASD</span> — Move</p>
                 <p><span className="text-[#00E5FF]">SHIFT</span> — Sprint</p>
-                <p><span className="text-[#00E5FF]">C / CTRL</span> — Crouch</p>
-                <p><span className="text-[#00E5FF]">E</span> — Lean right</p>
+                <p><span className="text-[#00E5FF]">C</span> — Crouch</p>
+                <p><span className="text-[#00E5FF]">Q / E</span> — Lean</p>
               </div>
               <div className="text-left space-y-1">
-                <p><span className="text-[#00E5FF]">LMB</span> — Shoot</p>
-                <p><span className="text-[#00E5FF]">RMB</span> — ADS</p>
+                <p><span className="text-[#00E5FF]">LMB</span> — Shoot &nbsp; <span className="text-[#00E5FF]">RMB</span> — ADS</p>
                 <p><span className="text-[#00E5FF]">R</span> — Reload</p>
-                <p><span className="text-[#00E5FF]">G</span> — Plant device</p>
+                <p><span className="text-[#00E5FF]">F</span> — Operator ability</p>
+                <p><span className="text-[#00E5FF]">1 / 2 / 3</span> — Switch weapon</p>
               </div>
               <div className="col-span-2 pt-2 border-t border-white/5 text-center">
-                <p><span className="text-[#00E5FF]">1/2/3</span> ou <span className="text-[#00E5FF]">SCROLL</span> — Arma &nbsp;|&nbsp; <span className="text-[#00E5FF]">ESC</span> — Pause</p>
+                <p><span className="text-[#00E5FF]">G (hold)</span> — Plant Neural Disruptor &nbsp;|&nbsp; <span className="text-[#00E5FF]">ESC</span> — Pause</p>
               </div>
             </div>
             <button onClick={requestLock}

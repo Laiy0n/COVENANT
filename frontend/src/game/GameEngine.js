@@ -14,6 +14,7 @@ export class GameEngine {
     this.renderer = null;
     this.clock = new THREE.Clock();
     this.enemies = [];
+    this.allies  = [];   // ally bots — always defined before init() runs
     this.heartMesh = null;
     this.mapObjects = [];
     this.isLocked = false;
@@ -118,6 +119,8 @@ export class GameEngine {
     
     this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     this.camera.position.copy(this.player.position);
+    // Camera must be in the scene so child objects (weapon viewmodel) are rendered
+    this.scene.add(this.camera);
     
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -140,7 +143,6 @@ export class GameEngine {
     this.mapObjects = createMap(this.scene);
     this.createHeart();
     this.enemies = createEnemies(this.scene, 5, { side: 'alien' });
-    this.allies  = [];
     this.createAllyBots();
     
     // Initialize weapon system
@@ -632,10 +634,10 @@ export class GameEngine {
   }
   
   updateEnemyAI(delta) {
-    // CS-style: enemies are frozen during the warmup/prepare phase
     if (this.gameState.warmupActive) return;
 
     const currentTime = this.clock.getElapsedTime();
+    const plantPos = new THREE.Vector3(PLANT_POSITION.x, 0, PLANT_POSITION.z);
 
     for (const enemy of this.enemies) {
       if (!enemy.alive) continue;
@@ -648,45 +650,96 @@ export class GameEngine {
 
       if (this.operator?.id === 'phantom' && this.abilityActive) continue;
 
+      // ── Priority target: defuse the planted device ────────────────────────
+      if (this.devicePlanted && this.team !== 'alien') {
+        const distToPlant = enemy.mesh.position.distanceTo(plantPos);
+        if (distToPlant > 1.8) {
+          // Rush toward device, ignoring player
+          const dir = new THREE.Vector3().subVectors(plantPos, enemy.mesh.position).setY(0).normalize();
+          const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta * 1.4);
+          newPos.y = 0;
+          if (!this.checkCollision(newPos, 0.35)) enemy.mesh.position.copy(newPos);
+          else {
+            const sx = new THREE.Vector3(newPos.x, 0, enemy.mesh.position.z);
+            const sz = new THREE.Vector3(enemy.mesh.position.x, 0, newPos.z);
+            if (!this.checkCollision(sx, 0.35)) enemy.mesh.position.copy(sx);
+            else if (!this.checkCollision(sz, 0.35)) enemy.mesh.position.copy(sz);
+          }
+          enemy.mesh.lookAt(new THREE.Vector3(plantPos.x, enemy.mesh.position.y, plantPos.z));
+          enemy.mesh.position.y = 0;
+        } else {
+          // Arrived at device — defuse after 3.5s
+          enemy._defuseTimer = (enemy._defuseTimer || 0) + delta;
+          if (enemy._defuseTimer >= 3.5) {
+            enemy._defuseTimer = 0;
+            this.devicePlanted = false;
+            this.deviceTimer   = 0;
+            this.plantProgress = 0;
+            if (this.plantMesh) { this.scene.remove(this.plantMesh); this.plantMesh = null; }
+            if (this.onStateUpdate) this.onStateUpdate({ devicePlanted: false, deviceTimer: 0, plantProgress: 0 });
+          }
+        }
+        continue; // skip normal combat AI while defusing
+      }
+      // Reset defuse timer when not defusing
+      enemy._defuseTimer = 0;
+
       const dist = enemy.mesh.position.distanceTo(this.player.position);
       const dir  = new THREE.Vector3().subVectors(this.player.position, enemy.mesh.position).normalize();
 
       if (enemy.attackType === 'projectile') {
-        // Spitter: keep distance, shoot blood balls
-        if (dist > enemy.attackRange * 0.6) {
-          const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta * 0.5);
+        // Spitter: advance to preferred range, then hold and shoot
+        const preferDist = enemy.config.preferDist || 10;
+        if (dist > preferDist) {
+          const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta * 0.85);
+          newPos.y = 0;
+          if (!this.checkCollision(newPos, 0.35)) enemy.mesh.position.copy(newPos);
+          else {
+            const sx = new THREE.Vector3(newPos.x, 0, enemy.mesh.position.z);
+            const sz = new THREE.Vector3(enemy.mesh.position.x, 0, newPos.z);
+            if (!this.checkCollision(sx, 0.35)) enemy.mesh.position.copy(sx);
+            else if (!this.checkCollision(sz, 0.35)) enemy.mesh.position.copy(sz);
+          }
+        } else if (dist < preferDist * 0.5) {
+          // Too close — back away
+          const backDir = dir.clone().negate();
+          const newPos  = enemy.mesh.position.clone().addScaledVector(backDir, enemy.speed * delta * 0.5);
+          newPos.y = 0;
           if (!this.checkCollision(newPos, 0.35)) enemy.mesh.position.copy(newPos);
         }
-        enemy.mesh.lookAt(this.player.position);
+        enemy.mesh.lookAt(new THREE.Vector3(this.player.position.x, enemy.mesh.position.y, this.player.position.z));
 
         if (currentTime - enemy.lastAttack > (enemy.shootCooldown || 2.2) && dist < (enemy.attackRange || 20)) {
-          // Line-of-sight check: only shoot if no wall between spitter and player
-          const spitterOrigin = enemy.mesh.position.clone().add(new THREE.Vector3(0, 0.3, 0));
-          const toPlayer = new THREE.Vector3().subVectors(this.player.position, spitterOrigin);
-          const losRay = new THREE.Raycaster(spitterOrigin, toPlayer.clone().normalize(), 0, toPlayer.length());
-          const wallHits = losRay.intersectObjects(this.mapObjects, false);
-          if (wallHits.length === 0) {
-            // Clear line of sight — fire
+          const origin = enemy.mesh.position.clone().add(new THREE.Vector3(0, 0.3, 0));
+          const toPlayer = new THREE.Vector3().subVectors(this.player.position, origin);
+          const losRay = new THREE.Raycaster(origin, toPlayer.clone().normalize(), 0, toPlayer.length());
+          if (losRay.intersectObjects(this.mapObjects, false).length === 0) {
             enemy.lastAttack = currentTime;
-            const proj = createProjectile(this.scene, spitterOrigin, dir);
+            // Add slight spread so shots aren't perfectly accurate
+            const spread = new THREE.Vector3(
+              (Math.random() - 0.5) * (enemy.config.spread || 0.05),
+              (Math.random() - 0.5) * 0.03,
+              (Math.random() - 0.5) * (enemy.config.spread || 0.05)
+            );
+            const proj = createProjectile(this.scene, origin, dir.clone().add(spread).normalize());
             enemy.projectiles.push(proj);
             this.allProjectiles.push(proj);
           }
         }
       } else {
-        // Melee: charge at player
+        // Melee: charge with wall sliding
         if (dist > enemy.attackRange) {
           const newPos = enemy.mesh.position.clone().addScaledVector(dir, enemy.speed * delta);
-          // Slide along walls: try X and Z separately if direct path blocked
+          newPos.y = 0;
           if (!this.checkCollision(newPos, 0.35)) {
             enemy.mesh.position.copy(newPos);
           } else {
-            const slideX = new THREE.Vector3(newPos.x, enemy.mesh.position.y, enemy.mesh.position.z);
-            const slideZ = new THREE.Vector3(enemy.mesh.position.x, enemy.mesh.position.y, newPos.z);
+            const slideX = new THREE.Vector3(newPos.x, 0, enemy.mesh.position.z);
+            const slideZ = new THREE.Vector3(enemy.mesh.position.x, 0, newPos.z);
             if (!this.checkCollision(slideX, 0.35)) enemy.mesh.position.copy(slideX);
             else if (!this.checkCollision(slideZ, 0.35)) enemy.mesh.position.copy(slideZ);
           }
-          enemy.mesh.lookAt(this.player.position);
+          enemy.mesh.lookAt(new THREE.Vector3(this.player.position.x, enemy.mesh.position.y, this.player.position.z));
         } else if (currentTime - enemy.lastAttack > 1.0) {
           enemy.lastAttack = currentTime;
           let damage = enemy.damage;
@@ -705,8 +758,7 @@ export class GameEngine {
         }
       }
 
-      // Keep enemies on the ground with a subtle idle float
-      enemy.mesh.position.y = Math.sin(currentTime * 2 + enemy.id) * 0.06;
+      enemy.mesh.position.y = 0;
     }
 
     // Update all projectiles and apply damage
@@ -726,7 +778,6 @@ export class GameEngine {
     const aliveCount = this.enemies.filter(e => e.alive).length;
     this.gameState.enemiesAlive = aliveCount;
 
-    // R6-STYLE: all aliens dead → humans win round (NO new wave spawning)
     if (aliveCount === 0 && !this.gameState.gameOver && this.gameState.roundActive) {
       this.winRound('humans');
     }
@@ -856,33 +907,23 @@ export class GameEngine {
   }
   
   // ── Keybinds ──────────────────────────────────────────────────────────────
-  static get DEFAULT_KEYBINDS() {
-    return {
-      moveForward:  'KeyW',
-      moveBackward: 'KeyS',
-      moveLeft:     'KeyA',
-      moveRight:    'KeyD',
-      sprint:       'ShiftLeft',
-      crouch:       'KeyC',
-      leanLeft:     'KeyQ',
-      leanRight:    'KeyE',
-      reload:       'KeyR',
-      ability:      'KeyF',
-      plant:        'KeyG',
-      weapon1:      'Digit1',
-      weapon2:      'Digit2',
-      weapon3:      'Digit3',
-    };
-  }
-
   loadKeybinds() {
+    const DEFAULT = {
+      moveForward:  'KeyW',  moveBackward: 'KeyS',
+      moveLeft:     'KeyA',  moveRight:    'KeyD',
+      sprint:       'ShiftLeft', crouch:  'KeyC',
+      leanLeft:     'KeyQ',  leanRight:   'KeyE',
+      reload:       'KeyR',  ability:     'KeyF',
+      plant:        'KeyG',
+      weapon1:      'Digit1', weapon2:   'Digit2', weapon3: 'Digit3',
+    };
     try {
       const saved = JSON.parse(localStorage.getItem('covenantKeyBindings') || '{}');
-      return { ...GameEngine.DEFAULT_KEYBINDS, ...saved };
-    } catch { return { ...GameEngine.DEFAULT_KEYBINDS }; }
+      return { ...DEFAULT, ...saved };
+    } catch { return { ...DEFAULT }; }
   }
 
-  // Call this from GameView after the settings panel closes so new binds take effect immediately
+  // Call this from GameView/SettingsPanel after saving new binds
   reloadKeybinds() { this.keybinds = this.loadKeybinds(); }
 
   // ── Allied bots ───────────────────────────────────────────────────────────
@@ -893,91 +934,190 @@ export class GameEngine {
     const spawnZ      = isAlienTeam ? -40 : 32;
 
     for (let i = 0; i < 4; i++) {
-      const g = new THREE.Group();
+      const g    = new THREE.Group();
       const bMat = new THREE.MeshStandardMaterial({ color: bodyColor,   roughness: 0.6, metalness: 0.3 });
       const hMat = new THREE.MeshStandardMaterial({ color: helmetColor, roughness: 0.5, metalness: 0.6 });
 
-      // Torso
-      g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.52, 0.26), bMat),
-        { position: new THREE.Vector3(0, 0.96, 0) }));
-      // Head / helmet
-      g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), hMat),
-        { position: new THREE.Vector3(0, 1.45, 0) }));
-      // Arms
+      const torso  = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.52, 0.26), bMat);
+      torso.position.set(0, 0.96, 0);
+      g.add(torso);
+
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.32), hMat);
+      head.position.set(0, 1.45, 0);
+      g.add(head);
+
       for (const s of [-1, 1]) {
         const arm = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.42, 0.11), bMat);
         arm.position.set(s * 0.27, 0.88, 0);
         g.add(arm);
-      }
-      // Legs
-      for (const s of [-1, 1]) {
         const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.48, 0.16), bMat);
-        leg.position.set(s * 0.1, 0.42, 0);
+        leg.position.set(s * 0.1, 0.24, 0);
         g.add(leg);
       }
 
-      // Stagger spawn so they don't overlap
       const angle = (Math.PI * 2 / 4) * i;
       g.position.set(Math.cos(angle) * 3, 0, spawnZ + Math.sin(angle) * 3);
       this.scene.add(g);
 
-      this.allies.push({
-        id: i, mesh: g,
-        health: 100, maxHealth: 100,
-        alive: true,
-        lastShot: 0,
-      });
+      this.allies.push({ id: i, mesh: g, health: 100, maxHealth: 100, alive: true, lastShot: 0 });
+    }
+  }
+
+  // ── Bot movement helper: move toward target with wall sliding ─────────────
+  _botMove(mesh, target, speed, delta) {
+    const dir = new THREE.Vector3().subVectors(target, mesh.position).setY(0).normalize();
+    const newPos = mesh.position.clone().addScaledVector(dir, speed * delta);
+    newPos.y = 0;
+    if (!this.checkCollision(newPos, 0.3)) {
+      mesh.position.copy(newPos);
+    } else {
+      const slideX = new THREE.Vector3(newPos.x, 0, mesh.position.z);
+      const slideZ = new THREE.Vector3(mesh.position.x, 0, newPos.z);
+      if (!this.checkCollision(slideX, 0.3)) mesh.position.copy(slideX);
+      else if (!this.checkCollision(slideZ, 0.3)) mesh.position.copy(slideZ);
+    }
+    mesh.position.y = 0;
+    mesh.lookAt(new THREE.Vector3(target.x, mesh.position.y, target.z));
+  }
+
+  // ── Find nearest alive enemy from a position ──────────────────────────────
+  _nearestEnemy(pos, pool) {
+    let nearest = null, dist = Infinity;
+    for (const e of pool) {
+      if (!e.alive) continue;
+      const d = pos.distanceTo(e.mesh.position);
+      if (d < dist) { dist = d; nearest = e; }
+    }
+    return { nearest, dist };
+  }
+
+  // ── Bot fires at a target (enemy object with .health/.mesh/.alive) ─────────
+  _botShoot(ally, target, now) {
+    ally.lastShot = now;
+    if (Math.random() > 0.72) return; // 28% miss chance
+    target.health -= 18 + Math.random() * 14;
+    this.createHitEffect(target.mesh.position.clone().setY(1.2), 0xff4400);
+    if (target.health <= 0) {
+      target.alive = false;
+      target.mesh.visible = false;
+      this.sounds.play('kill');
+      this.player.kills++;
     }
   }
 
   updateAllyAI(delta) {
     if (this.gameState.warmupActive || this.gameState.gameOver) return;
     const now = this.clock.getElapsedTime();
+    const isHuman = this.team !== 'alien';
+
+    const plantPos = new THREE.Vector3(PLANT_POSITION.x, 0, PLANT_POSITION.z);
+    const heartPos = new THREE.Vector3(HEART_POSITION.x, 0, HEART_POSITION.z);
 
     for (const ally of this.allies) {
       if (!ally.alive) continue;
+      if (!ally.state) ally.state = 'advance';
 
-      // ── Find nearest living enemy ────────────────────────────────────────
-      let nearest = null, nearestDist = Infinity;
-      for (const e of this.enemies) {
-        if (!e.alive) continue;
-        const d = ally.mesh.position.distanceTo(e.mesh.position);
-        if (d < nearestDist) { nearestDist = d; nearest = e; }
-      }
+      const pos = ally.mesh.position;
+      const { nearest: threat, dist: threatDist } = this._nearestEnemy(pos, this.enemies);
 
-      if (nearest && nearestDist < 22) {
-        // ── Engage: face enemy, shoot every ~1.8s ───────────────────────────
-        ally.mesh.lookAt(nearest.mesh.position.clone().setY(ally.mesh.position.y));
-        if (now - ally.lastShot > 1.8) {
-          ally.lastShot = now;
-          nearest.health -= 22 + Math.random() * 10;
-          this.createHitEffect(nearest.mesh.position.clone().setY(1.2), 0xff4400);
-          if (nearest.health <= 0) {
-            nearest.alive = false;
-            nearest.mesh.visible = false;
-            this.sounds.play('kill');
-            this.player.kills++;
+      // ════════════════════════════════════════════════════════════════════════
+      //  HUMAN ALLY BOTS  (player is on human team)
+      //  States: advance → objective | engage → fight | guard → protect site
+      // ════════════════════════════════════════════════════════════════════════
+      if (isHuman) {
+        // State transitions
+        if (threat && threatDist < 20) {
+          ally.state = 'engage';
+        } else if (ally.state === 'engage' && (!threat || threatDist >= 24)) {
+          ally.state = this.devicePlanted ? 'guard' : 'advance';
+        }
+        if (this.devicePlanted && ally.state !== 'engage') ally.state = 'guard';
+
+        switch (ally.state) {
+          case 'advance': {
+            // Bot 0 heads straight to plant, others fan out around it
+            const dest = ally.id === 0
+              ? plantPos.clone()
+              : plantPos.clone().add(new THREE.Vector3(
+                  Math.cos(ally.id * 1.8) * 4, 0, Math.sin(ally.id * 1.8) * 4
+                ));
+            if (pos.distanceTo(dest) > 2.0) this._botMove(ally.mesh, dest, 4.2, delta);
+            // Shoot opportunistically while moving
+            if (threat && threatDist < 20 && now - ally.lastShot > 1.6) {
+              ally.mesh.lookAt(new THREE.Vector3(threat.mesh.position.x, pos.y, threat.mesh.position.z));
+              this._botShoot(ally, threat, now);
+            }
+            break;
+          }
+          case 'engage': {
+            // Strafe perpendicular to threat — makes bots feel like real players
+            const toThreat = new THREE.Vector3().subVectors(threat.mesh.position, pos).setY(0);
+            const right    = new THREE.Vector3(-toThreat.z, 0, toThreat.x).normalize();
+            if (!ally._strafeDir || Math.random() < 0.006) ally._strafeDir = Math.random() > 0.5 ? 1 : -1;
+            const strafeTarget = pos.clone().addScaledVector(right, ally._strafeDir * 3);
+            if (threatDist > 7) this._botMove(ally.mesh, strafeTarget, 3.5, delta);
+            ally.mesh.lookAt(new THREE.Vector3(threat.mesh.position.x, pos.y, threat.mesh.position.z));
+            if (threatDist < 22 && now - ally.lastShot > 1.3) this._botShoot(ally, threat, now);
+            break;
+          }
+          case 'guard': {
+            // Spread around the planted device — hold the site
+            const coverOff = new THREE.Vector3(
+              Math.cos(ally.id * (Math.PI * 2 / 4)) * 5, 0,
+              Math.sin(ally.id * (Math.PI * 2 / 4)) * 5
+            );
+            const coverPos = plantPos.clone().add(coverOff);
+            if (pos.distanceTo(coverPos) > 2) this._botMove(ally.mesh, coverPos, 4.0, delta);
+            if (threat && threatDist < 26 && now - ally.lastShot > 1.5) {
+              ally.mesh.lookAt(new THREE.Vector3(threat.mesh.position.x, pos.y, threat.mesh.position.z));
+              this._botShoot(ally, threat, now);
+            }
+            break;
           }
         }
-      } else {
-        // ── Follow player in a loose formation ───────────────────────────────
-        const formationOffset = new THREE.Vector3(
-          Math.cos((Math.PI * 2 / 4) * ally.id) * 2.5,
-          0,
-          Math.sin((Math.PI * 2 / 4) * ally.id) * 2.5
-        );
-        const target  = this.player.position.clone().add(formationOffset);
-        const distToTarget = ally.mesh.position.distanceTo(target);
 
-        if (distToTarget > 1.5) {
-          const moveDir = new THREE.Vector3().subVectors(target, ally.mesh.position).normalize();
-          const newPos  = ally.mesh.position.clone().addScaledVector(moveDir, 4.5 * delta);
-          newPos.y = 0;
-          if (!this.checkCollision(newPos, 0.3)) ally.mesh.position.copy(newPos);
-          ally.mesh.lookAt(target.clone().setY(ally.mesh.position.y));
+      // ════════════════════════════════════════════════════════════════════════
+      //  ALIEN ALLY BOTS  (player chose alien side)
+      //  States: defuse → kill the planted device | protect → guard heart
+      // ════════════════════════════════════════════════════════════════════════
+      } else {
+        ally.state = this.devicePlanted ? 'defuse' : 'protect';
+
+        switch (ally.state) {
+          case 'defuse': {
+            const distToPlant = pos.distanceTo(plantPos);
+            if (distToPlant > 1.5) {
+              // Sprint toward the device
+              this._botMove(ally.mesh, plantPos, 5.8, delta);
+            } else {
+              // Stand on it and defuse (2 s per bot)
+              ally._defuseTimer = (ally._defuseTimer || 0) + delta;
+              if (ally._defuseTimer >= 2.0 && !ally._defused) {
+                ally._defused = true;
+                this.devicePlanted = false;
+                this.deviceTimer   = 0;
+                this.plantProgress = 0;
+                if (this.plantMesh) { this.scene.remove(this.plantMesh); this.plantMesh = null; }
+                if (this.onStateUpdate) this.onStateUpdate({ devicePlanted: false, deviceTimer: 0, plantProgress: 0 });
+              }
+            }
+            break;
+          }
+          case 'protect': {
+            // Reset defuse state so bots can defuse again next round
+            ally._defuseTimer = 0;
+            ally._defused = false;
+            const guardOff = new THREE.Vector3(
+              Math.cos(ally.id * (Math.PI * 2 / 4)) * 6, 0,
+              Math.sin(ally.id * (Math.PI * 2 / 4)) * 6
+            );
+            const guardPos = heartPos.clone().add(guardOff);
+            guardPos.y = 0;
+            if (pos.distanceTo(guardPos) > 2) this._botMove(ally.mesh, guardPos, 3.8, delta);
+            break;
+          }
         }
       }
-      ally.mesh.position.y = 0; // keep on ground
     }
   }
 
