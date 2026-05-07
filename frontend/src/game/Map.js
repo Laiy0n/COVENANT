@@ -140,6 +140,42 @@ export function createMap(scene) {
     s.rotation.x = -Math.PI / 2; s.position.set(i * 2, 0.01, -43); scene.add(s);
   }
 
+  // ── Site A marker (left vascular node) ─────────────────────────────────────
+  {
+    const siteMat = new THREE.MeshStandardMaterial({ color:0x003388, emissive:0x001144, emissiveIntensity:0.6 });
+    // Vascular pipe cluster
+    for (const [ox,oz] of [[-1.2,0],[1.2,0],[0,-1.2],[0,1.2]]) {
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,4.5,8), siteMat);
+      pipe.position.set(-38+ox, 2.25, -50+oz);
+      pipe.userData = { isWall:true };
+      scene.add(pipe); objects.push(pipe);
+    }
+    // Central node
+    const node = new THREE.Mesh(new THREE.SphereGeometry(0.6,10,8), siteMat);
+    node.position.set(-38, 1.5, -50); scene.add(node);
+    // Floor circle indicator
+    const circle = new THREE.Mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({color:0x004488, transparent:true, opacity:0.5}));
+    circle.rotation.x = -Math.PI/2; circle.position.set(-38, 0.02, -50); scene.add(circle);
+    // "A" label light
+    const lA = new THREE.PointLight(0x0055ff, 2.0, 14); lA.position.set(-38, 3, -50); scene.add(lA);
+  }
+
+  // ── Site B marker (right vascular node) ─────────────────────────────────────
+  {
+    const siteMat = new THREE.MeshStandardMaterial({ color:0x663300, emissive:0x331100, emissiveIntensity:0.6 });
+    for (const [ox,oz] of [[-1.2,0],[1.2,0],[0,-1.2],[0,1.2]]) {
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.22,4.5,8), siteMat);
+      pipe.position.set(38+ox, 2.25, -50+oz);
+      pipe.userData = { isWall:true };
+      scene.add(pipe); objects.push(pipe);
+    }
+    const node = new THREE.Mesh(new THREE.SphereGeometry(0.6,10,8), siteMat);
+    node.position.set(38, 1.5, -50); scene.add(node);
+    const circle = new THREE.Mesh(new THREE.CircleGeometry(2.2, 32), new THREE.MeshBasicMaterial({color:0x663300, transparent:true, opacity:0.5}));
+    circle.rotation.x = -Math.PI/2; circle.position.set(38, 0.02, -50); scene.add(circle);
+    const lB = new THREE.PointLight(0xff4400, 2.0, 14); lB.position.set(38, 3, -50); scene.add(lB);
+  }
+
   // Floor grid
   const gridMat = new THREE.MeshBasicMaterial({ color:0x161b28 });
   for (let i = -55; i <= 55; i += 8) {
@@ -157,5 +193,11 @@ export function createMap(scene) {
   return objects;
 }
 
-export const HEART_POSITION = new THREE.Vector3(0, 3, -46);
-export const PLANT_POSITION = new THREE.Vector3(0, 0, -38);
+export const HEART_POSITION  = new THREE.Vector3(0, 3, -46);
+
+// Two plant sites — Site A (left vascular node) and Site B (right vascular node)
+export const PLANT_SITE_A = new THREE.Vector3(-38, 0, -50);
+export const PLANT_SITE_B = new THREE.Vector3( 38, 0, -50);
+
+// Keep old PLANT_POSITION for compatibility
+export const PLANT_POSITION = PLANT_SITE_A;

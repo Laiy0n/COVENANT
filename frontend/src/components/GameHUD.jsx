@@ -121,7 +121,7 @@ export default function GameHUD({ gameState, isLocked, onOpenSettings }) {
           </div>
           <div className="flex items-center gap-2">
             <Target size={10} className="text-[#FF2A2A]" />
-            <span className="text-xs font-mono text-[#FF2A2A] uppercase tracking-wider">KILL ALL ALIENS  or  PLANT DISRUPTOR [G near heart]</span>
+            <span className="text-xs font-mono text-[#FF2A2A] uppercase tracking-wider">KILL ALL ALIENS  or  PLANT AT SITE A / SITE B</span>
           </div>
           <div className="mt-1 w-48 mx-auto h-1 bg-white/10 overflow-hidden">
             <div className="h-full transition-all duration-300" style={{ width:`${heartPct}%`, background:'linear-gradient(90deg,#FF2A2A,#ff6666)' }} />
